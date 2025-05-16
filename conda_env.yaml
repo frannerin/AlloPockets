@@ -1,4 +1,4 @@
-# CONDA_CHANNEL_PRIORITY=disabled conda env create -n allopockets --file conda_env.yaml
+# CONDA_CHANNEL_PRIORITY=disabled PIP_NO_DEPS=1 conda env create -n allopockets --file conda_env.yaml
 channels:
   - conda-forge
   - https://conda.rosettacommons.org
@@ -40,11 +40,25 @@ dependencies:
   - pip:
       # Database and structures
       - pdbecif==1.5
-      - ipymolstar==0.0.5
       - rcsbsearchapi==1.5.1
+      - ipymolstar==0.0.5
       # Features
       - graphein==1.7.7
       - git+https://github.com/frannerin/Melodia_py
+      ## Deps
+      - anywidget
+      - psygnal
+      - nglview
+      - loguru
+      - xarray
+      - deepdiff
+      - orderly-set
+      - wget
+      - biopandas
+      - looseversion
+      - multipledispatch
+      - cpdb-protein
+      - cython
 
 # mkdssp executable downloaded from https://github.com/PDB-REDO/dssp/releases/tag/v4.4.0
   

@@ -206,3 +206,5 @@ training_data/*
 !training_data/utils
 training_data/utils/external/*
 !training_data/utils/external/README.md
+
+predict/
