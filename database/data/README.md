@@ -1,0 +1,5 @@
+- Allosteric and competitive inhibitors.tsv from Hu et al.: https://zenodo.org/records/4436775/files/Allosteric%20and%20competitive%20inhibitors.tsv?download=1
+- ASD_Release_202309_AS.txt: https://mdl.shsmu.edu.cn/ASD/module/download/download.jsp?tabIndex=1
+- grall-v3.0-website-4-download.csv from Cerdan et al.: https://ifm.chimie.unistra.fr/wp-content/uploads/csv/grall-v3.0-website-4-download.csv
+- ACRALL-23Jun23.xlsx: ask authors (https://ifm.chimie.unistra.fr/acrall)
+- Resubmission_ci-2024-00819j_SI-data_10July2024.xlsx from Peter et al.: https://pubs-acs-org.uaccess.univie.ac.at/doi/suppl/10.1021/acs.jcim.4c00819/suppl_file/ci4c00819_si_002.xlsx (rename file)
