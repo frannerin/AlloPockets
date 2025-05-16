@@ -1,0 +1,64 @@
+channels:
+  - conda-forge
+  # - bioconda
+  # - acellera
+  - https://conda.rosettacommons.org
+  - defaults
+dependencies:
+  - python=3.11.9
+  - jupyterlab=4.2.5
+  - ipywidgets
+  - tqdm
+  - nb_conda_kernels
+  - pandas=2.2.3
+  - pip
+  # Database and structures
+  - peewee=3.17.6
+  - apsw
+  - sqlite=3.46.0
+  - openpyxl
+  - pymol-open-source=2.5.0
+  - pdbfixer=1.10
+  - bioconda::mmseqs2=15.6* # 15.6f452
+  - mdanalysis
+  - HCC::fpocket=4.2.2
+  # AutoGluon
+  - autogluon=1.2.0
+  - scikit-learn=1.5.2
+  - shap=0.46.0
+  - scipy=1.13.1
+  - fastai=2.7.18
+  - pytorch=2.4.0
+  # Features
+  - bioconda::hhsuite=3.3.0
+  - acellera::moleculekit=1.9.16
+  - biotite=1.0.1
+  - biopython=1.84
+  - msms=2.6.1
+  - prody=2.4.1=pyh94de1ce_1
+  - pyrosetta # originally 2024.42+release.3366cf78a3*; changed for compatibility with conda-forge dssp
+  #- freesasa=2.2.1
+  - HCC::freesasa-cli=2.1.2
+  - pip:
+      # Database and structures
+      - pdbecif=1.5
+      - ipymolstar=0.0.5
+      - rcsbsearchapi=1.5.1
+      # Features
+      - graphein=1.7.7
+      - git+https://github.com/frannerin/Melodia_py
+
+# mkdssp executable downloaded from https://github.com/PDB-REDO/dssp/releases/tag/v4.4.0
+  
+  
+  # #? - git
+  # #? - numpy
+  # #? - compilers
+  # - msms
+  # # - libzlib
+  # # - zlib[version='>=1.2.13,<1.3.0a0']
+  # #? - pdb2pqr
+  # ?blast                     2.16.0               hc155240_3    bioconda
+
+  
+

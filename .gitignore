@@ -1,0 +1,229 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having no cross-platform support, pipenv may install dependencies that don't work, or not
+#   install all needed dependencies.
+#Pipfile.lock
+
+# celery beat schedule file
+celerybeat-schedule
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+
+database/data/*
+!database/data/README.md
+database/src/data/
+
+figures/
+
+models/info_and_deploy.ipynb
+models/residues_physchem_embs/
+models/residues_physchem/
+models/residues_fine_tuning/
+models/residues_embs/
+models/pockets_physchem_embs/
+models/pockets_physchem/
+models/pockets_embs/
+
+models/other_tools/data/
+
+models/other_tools/ALLO/*
+!models/other_tools/ALLO/ALLO.ipynb
+!models/other_tools/ALLO/ALLO_results.pkl
+!models/other_tools/ALLO/ALLO_results.json
+!models/other_tools/ALLO/*.txt
+
+models/other_tools/AllosES/*
+!models/other_tools/AllosES/AllosES.ipynb
+!models/other_tools/AllosES/alloses_results.pkl
+!models/other_tools/AllosES/run_psiblast.py
+
+models/other_tools/AllositePro/*
+!models/other_tools/AllositePro/AllositePro.ipynb
+!models/other_tools/AllositePro/allositepro_results.pkl
+
+models/other_tools/DeepAllo/*
+!models/other_tools/DeepAllo/deepallo.ipynb
+!models/other_tools/DeepAllo/deepallo_results.pkl
+
+models/other_tools/MEF-AlloSite/MEF-AlloSite/
+
+models/other_tools/PASSer/automl/
+models/other_tools/PASSer/ensemble/
+models/other_tools/PASSer/rank/
+
+models/other_tools/STINGAllo/*
+!models/other_tools/STINGAllo/STINGAllo.ipynb
+!models/other_tools/STINGAllo/stingallo_results.pkl
+
+models/other_tools_apos/data/
+
+models/other_tools_apos/ALLO/*
+!models/other_tools_apos/ALLO/ALLO.ipynb
+!models/other_tools_apos/ALLO/ALLO_results.pkl
+!models/other_tools_apos/ALLO/ALLO_results.json
+!models/other_tools_apos/ALLO/*.txt
+
+models/other_tools_apos/AllosES/*
+!models/other_tools_apos/AllosES/AllosES.ipynb
+!models/other_tools_apos/AllosES/alloses_results.pkl
+!models/other_tools_apos/AllosES/run_psiblast.py
+
+models/other_tools_apos/AllositePro/*
+!models/other_tools_apos/AllositePro/AllositePro.ipynb
+!models/other_tools_apos/AllositePro/allositepro_results.pkl
+
+models/other_tools_apos/DeepAllo/*
+!models/other_tools_apos/DeepAllo/deepallo.ipynb
+!models/other_tools_apos/DeepAllo/deepallo_results.pkl
+
+models/other_tools_apos/MEF-AlloSite/MEF-AlloSite/
+
+models/other_tools_apos/PASSer/automl/
+models/other_tools_apos/PASSer/ensemble/
+models/other_tools_apos/PASSer/rank/
+
+models/other_tools_apos/STINGAllo/*
+!models/other_tools_apos/STINGAllo/STINGAllo.ipynb
+!models/other_tools_apos/STINGAllo/stingallo_results.pkl
+
+training_data/1.Minimal_structures/Minimal_structures/
+training_data/2.Clustering/foldseek/tmp/
+training_data/2.Clustering/mmseqs2/tmp/
+training_data/3.Pockets/fpocket/pockets/
+training_data/3.Pockets/old_fpocket/pockets/
+training_data/3.Pockets/p2rank/pockets/
+training_data/4.Features/features/
+
+training_data/7.Extra_set/cifs/
+training_data/7.Extra_set/features/
+training_data/7.Extra_set/origcifs/
+training_data/7.Extra_set/pockets/
+
+training_data/8.Apos/cifs/
+training_data/8.Apos/features/
+training_data/8.Apos/origcifs/
+training_data/8.Apos/pockets/
+
+training_data/8.Apos/Extra_set/cifs/
+training_data/8.Apos/Extra_set/features/
+training_data/8.Apos/Extra_set/origcifs/
+training_data/8.Apos/Extra_set/pockets/
+
+training_data/utils/external/predict_ddG.py
+training_data/utils/external/foldseek
+training_data/utils/external/p2rank_2.5/
