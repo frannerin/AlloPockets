@@ -28,4 +28,4 @@ conda activate allopockets
 jupyter lab predict.ipynb
 ```
 
-![6T4K](https://github.com/user-attachments/assets/7b55fc0e-f51c-45a2-93b9-30bb9ee796df)
+![6T4K](https://github.com/user-attachments/assets/f392b49f-500a-4e38-acd3-fd431f0aaa9d)
