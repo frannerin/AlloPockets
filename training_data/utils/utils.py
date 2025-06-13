@@ -5,6 +5,7 @@ import os, sys
 sys.path.append(
     os.path.dirname( os.path.abspath(__file__) )
     .rsplit("/", 2)[0]
+    + "/database"
 )
 
 from src.utils import Cif as BaseCifFile
