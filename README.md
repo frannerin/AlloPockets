@@ -17,8 +17,6 @@ Download and save in `training_data/utils/external`:
 - [predict_ddG.py script from PyRosetta](https://github.com/RosettaCommons/PyRosetta.notebooks/blob/master/notebooks/additional_scripts/predict_ddG.py)
 - [DSPP software executable](https://github.com/PDB-REDO/dssp/releases/download/v4.4.0/mkdssp-4.4.0-linux-x64)
 
-Additionally, download and uncompress the [UniRef30 database](https://wwwuser.gwdguser.de/~compbiol/uniclust/2023_02) (`tar -xzf UniRef30_2023_02_hhsuite.tar.gz`).
-
 ## Predict
 
 Activate the environment and run the `predict.ipynb` notebook:
