@@ -1,4 +1,4 @@
-import os, tempfile
+import os, tempfile, re, subprocess
 import pandas as pd
 from tqdm.notebook import tqdm
 
@@ -21,7 +21,7 @@ class Cif(BaseCif):
 
 
 path = "predict" # Path to write files and results to
-uniref_path = "/data/fnerin/UniRef30_2023_02/UniRef30_2023_02" # Path to the uncompressed UniRef database
+# uniref_path = "/data/fnerin/UniRef30_2023_02/UniRef30_2023_02" # Path to the uncompressed UniRef database
 
 
 def get_cif(
@@ -43,6 +43,7 @@ def get_cif(
     # Cache the contents of the file
     pdb.cif.data
     return pdb
+
 
 import pymol2
 
@@ -99,6 +100,7 @@ def get_site(site, only_protein=True, threshold=6): # site.pdb CAN BE PDB OR ASS
 
     return site_res
 
+
 class Site:
     def __init__(self, pdb, modulator_residues=None, residues=None, only_protein=True, distance_threshold=6):
         self.pdb = pdb
@@ -111,6 +113,7 @@ class Site:
                 self.residues = self.residues.query(f"label_entity_id in {self.pdb._protein_entities}")
         else:
             raise Exception("Pass one of 'modulator_residues' or 'residues'")
+
 
 def get_clean_pdb(pdb, protein_chains, path=path):
     os.makedirs(path, exist_ok=True)
@@ -133,6 +136,7 @@ def get_clean_pdb(pdb, protein_chains, path=path):
     cif.cif.data
     return cif
 
+
 from ipymolstar import PDBeMolstar
 
 def view_pdb(pdb, **kwargs):
@@ -154,7 +158,6 @@ colors = {
 }
 
 
-
 def get_pockets(
     clean_pdb,
     path=path
@@ -174,7 +177,6 @@ def get_pockets(
     ))
 
 
-
 def get_pocket(pdb, pocket, path=path):
     pocketn = pocket.replace('pocket', '')
     pocket_atoms = (
@@ -186,7 +188,7 @@ def get_pocket(pdb, pocket, path=path):
     pocket_atoms["label_entity_id"] = '99'
 
     return pocket_atoms
-    
+
 
 def view_pockets(
     pdb,
@@ -298,6 +300,7 @@ def view_pockets(
         }
     )
 
+
 from utils.pocket_utils import Pocket, get_pockets_info, get_mean_pocket_features
 from utils.features_classes import * # Each FClass
 from utils.features_utils import calculate_features, get_pdb_features
@@ -307,7 +310,93 @@ BiopythonF.dssp_path = "training_data/utils/external/mkdssp-4.4.0-linux-x64"
 os.chmod(BiopythonF.dssp_path, 0o755)
 # f"mkdssp --mmcif-dictionary {os.environ['CONDA_PREFIX']}/share/libcifpp/mmcif_pdbx.dic"#"training_data/utils/external/mkdssp-4.4.0-linux-x64"
 
+from colabfold.batch import get_msa_and_templates
+from colabfold.utils import DEFAULT_API_SERVER
+from pathlib import Path as plPath
 
+class HHBlitsF_msa(HHBlitsF):
+    def _hhblits(self, seq, entity_id, *args, **kwargs):
+        fn = lambda ext: f"{self._path}/{self._jobname}_{entity_id}.{ext}"
+        jobname = f"AlloPockets_{self._jobname}"
+
+        if not os.path.isfile(fn('a3m')):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                get_msa_and_templates(
+                    jobname=jobname,
+                    query_sequences= seq,
+                    a3m_lines=None,
+                    result_dir=plPath(tmpdir),
+                    msa_mode= "mmseqs2_uniref", # earch against the UniRef database only (mmseqs2_uniref) or UniRef and ColabFoldDB (mmseqs2_uniref_env, default)
+                    use_templates= False, # AlphaPulldown uses True
+                    custom_template_path=None,
+                    pair_mode="none",
+                    host_url=DEFAULT_API_SERVER,
+                    user_agent=self._email #'alphapulldown'
+                )
+                subprocess.run(f"cp {tmpdir}/{jobname}_all/uniref.a3m {fn('a3m')}", shell=True)
+
+        if not os.path.isfile(fn('hhm')):
+            subprocess.run(f"hhmake -i {fn('a3m')} -o {fn('hhm')} -v 0", shell=True)
+            
+        with open(fn("hhm"), "r") as fp:
+            data = []
+            seq = []
+            regex = re.compile("^\w\s\d+")
+            starting = 0
+            lines = fp.readlines()
+            for i in range(len(lines)):
+                if lines[i].startswith("NULL"):
+                    pieces = lines[i].split()
+                    seq.append([pieces[0]])
+                    data.append(
+                        [2 ** (-int(x) / 1000) if x != "*" else 0 for x in pieces[1:21]]
+                        + [0] * 10
+                    )
+                if lines[i].startswith("HMM    A	C	D"):
+                    col_desc = lines[i].split()[1:] + lines[i + 1].split()
+                    starting = 1
+                if starting > 0:
+                    starting += 1
+                if starting >= 4 and regex.match(lines[i]):
+                    pieces = lines[i].split()
+                    seq.append([pieces[0]])
+                    d = [2 ** (-int(x) / 1000) if x != "*" else 0 for x in pieces[2:22]]
+                    pieces = lines[i + 1].split()
+                    d += [2 ** (-int(x) / 1000) if x != "*" else 0 for x in pieces[:7]]
+                    d += [0.001 * int(x) for x in pieces[7:10]]
+                    data.append(d)
+    
+        df = pd.DataFrame(
+            np.hstack((np.vstack(seq), np.vstack(data))), columns=["seq"] + col_desc
+        )
+
+        return df, None
+
+            
+def get_colabfold_msa(
+    clean_pdb,
+    email,
+    path=path
+):    
+    # Establish PDB
+    if type(clean_pdb) == str:
+        os.makedirs(path, exist_ok=True)
+        Cif.path = path
+        Cif.original_cifs_path = path
+        clean_pdb = Cif(clean_pdb, filename=f"{path}/{clean_pdb}.cif")
+    pdb = clean_pdb.entry_id
+
+    # Establish calc. data
+    HHBlitsF_msa._jobname = pdb
+    HHBlitsF_msa._email = email
+    HHBlitsF_msa._path = path
+        
+    os.makedirs(f"{path}/features/{pdb}", exist_ok=True)
+    file = f"{path}/features/{pdb}/HHBlitsF.pkl"
+    if not os.path.isfile(file):
+        calculated = calculate_features(pdb, HHBlitsF_msa, file, path, path)
+        assert calculated, f"ColabFold MSA retrieval failed"
+        
 
 def get_features(
     clean_pdb,
@@ -381,7 +470,6 @@ def get_pockets_features(
     )
 
 
-
 from autogluon.tabular import TabularDataset, TabularPredictor
 
 model = TabularPredictor.load("models/pockets_physchem_deploy")
@@ -395,12 +483,11 @@ def prepare_data(df):
 
 
 
-
 def predict(
     pdb,
     protein_chains=None,
     path=path,
-    uniref_path=uniref_path
+    # uniref_path=uniref_path
 ):
     # Establish PDB
     if type(pdb) == str:
@@ -429,7 +516,7 @@ def predict(
     features = get_features(
         clean_pdb,
         path=path,
-        uniref_path=uniref_path
+        # uniref_path=uniref_path
     )
 
     pockets_features = get_pockets_features(

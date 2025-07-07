@@ -521,7 +521,7 @@ class HHBlitsF:
         "hhblits"
     ]
 
-    def _hhblits(self, seq, ncpu):
+    def _hhblits(self, seq, entity_id, ncpu):
         return getSequenceProfile(
             seq,
             hhblits="hhblits", 
@@ -535,7 +535,7 @@ class HHBlitsF:
         ents = pd.DataFrame(self._cif.cif.data["_entity_poly"], dtype=str)
         for entity_id, entity_res in res.groupby("label_entity_id"):
             seq = ents.query(f"entity_id == '{entity_id}'")["pdbx_seq_one_letter_code_can"].item().replace("\n", "")
-            df, _ = self._hhblits(seq, ncpu=ncpu)
+            df, _ = self._hhblits(seq, ncpu=ncpu, entity_id=entity_id)
             for asym_id in entity_res.label_asym_id.unique():
                 dfs.append(
                     pd.concat(
