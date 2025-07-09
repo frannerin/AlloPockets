@@ -38,6 +38,9 @@ dependencies:
   #- freesasa=2.2.1
   - HCC::freesasa-cli=2.1.2
   - bioconda::correlationplus=0.2.1
+  # Gradio
+  - gradio
+  - mamba # For CondaColab
   - pip:
       # Database and structures
       - pdbecif==1.5
