@@ -37,6 +37,7 @@ dependencies:
   - pyrosetta # originally 2024.42+release.3366cf78a3*; changed for compatibility with conda-forge dssp
   #- freesasa=2.2.1
   - HCC::freesasa-cli=2.1.2
+  - bioconda::correlationplus=0.2.1
   - pip:
       # Database and structures
       - pdbecif==1.5

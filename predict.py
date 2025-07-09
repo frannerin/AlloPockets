@@ -203,9 +203,9 @@ def view_pockets(
         os.makedirs(path, exist_ok=True)
         Cif.path = path
         Cif.original_cifs_path = path
-        pdb = Cif(pdb, filename=f"{path}/{pdb}_updated.cif")
+        pdb = Cif(pdb, filename=f"{path}/{pdb}.cif")
         
-    chains = protein_chains or pdb.residues.query(f"label_entity_id in {pdb._protein_entities}").label_asym_id.unique().tolist()
+    chains = protein_chains or pdb.residues.label_asym_id.unique().tolist()
     pdb = pdb.entry_id
     cif = Cif(pdb, f"{path}/{pdb}_updated.cif") # Final cif file has to be the complete cif file regardless
 
@@ -400,8 +400,8 @@ def get_colabfold_msa(
 
 def get_features(
     clean_pdb,
-    path=path,
-    uniref_path=uniref_path
+    uniref_path=None,
+    path=path
 ):
     os.makedirs(f"{path}/features/{clean_pdb.entry_id}", exist_ok=True)
     HHBlitsF.uniref_path = uniref_path
@@ -487,8 +487,17 @@ def predict(
     pdb,
     protein_chains=None,
     path=path,
-    # uniref_path=uniref_path
+    email=None,
+    uniref_path=None
 ):
+    if all(i is None for i in [email, uniref_path]):
+        print("One of 'email' or 'uniref_path' must be passed appropriately")
+        return
+    if email == "youremail@yourinstitution.com":
+        print("Please provide a valid email")
+        return
+    
+        
     # Establish PDB
     if type(pdb) == str:
         os.makedirs(path, exist_ok=True)
@@ -512,11 +521,18 @@ def predict(
     )
     pockets["pdb"] = clean_pdb.entry_id
 
+    # ColabFold MSA if necessary:
+    get_colabfold_msa(
+        clean_pdb,
+        email=email,
+        path=path
+    )
+    
     # Features
     features = get_features(
         clean_pdb,
         path=path,
-        # uniref_path=uniref_path
+        uniref_path=uniref_path
     )
 
     pockets_features = get_pockets_features(
@@ -531,3 +547,293 @@ def predict(
     preds = model.predict_proba(data)[[1]].sort_values(1, ascending=False).rename(columns={1: "Allosteric score"})
     preds.index = preds.index.map(lambda x: x.split("_")[-1])
     return preds
+
+
+
+
+
+import networkx as nx
+from correlationplus.calculate import calcENMnDCC
+
+def get_correlationplus_network(
+    atoms,
+    nodes,
+    pdb,
+    path=path
+):
+    # Calculate correlationplus network or read
+    networkf = f"{path}/{pdb}_correlationplus.dat"
+    if not os.path.isfile(networkf):
+        cc_matrix = calcENMnDCC(selectedAtoms=atoms, cut_off=15, out_file=networkf) # method="ANM", 
+    else:
+        cc_matrix = np.loadtxt(networkf, dtype=float)
+    
+    # Create graph, add nodes, and then correlation edges
+    G = nx.Graph()
+    for i, node in nodes.iterrows():
+        G.add_node(i, **node)
+        
+    for i in range(len(nodes)):
+        for j in range(i+1, len(nodes)): # Matrix is symmetrical, only use upper
+            G.add_edge(i, j, value=cc_matrix[i, j], distance=-np.log(abs(cc_matrix[i, j]) + 10E-10) + 10E-10)
+            # The approach in lit. is to use -log10(|corr|) as edge weights/distances in the network for analyses
+            # e.g., https://www.pnas.org/doi/full/10.1073/pnas.0810961106
+    
+    return G
+
+def get_prs_network(
+    prodycif,
+    pdb,
+    nodes,
+    path=path
+):
+    # Calculate PRS or read
+    networkf = f"{path}/{pdb}_prody_prs_matrix.dat"
+    if not os.path.isfile(networkf):
+        prs_mat, _ = prodycif._prs()
+    else:
+        prs_mat = np.loadtxt(networkf, dtype=float)
+    
+    # Create DIRECTED graph, add nodes, and then prs edges
+    G = nx.DiGraph()
+    for i, node in nodes.iterrows():
+        G.add_node(i, **node)
+
+    for i in range(len(nodes)):
+        for j in range(len(nodes)):
+            if i != j:
+                G.add_edge(i, j, value=prs_mat[i, j], distance=-np.log(abs(prs_mat[i, j]) + 10E-10) + 10E-10) # PRS values are always positive but abs() doesn't hurt
+                # The approach in lit. is to use -log10(|corr|) as edge weights/distances in the network for analyses
+                # e.g., https://www.pnas.org/doi/full/10.1073/pnas.0810961106
+    
+    return G
+
+def get_pathways(
+    pdb,
+    pathways,
+    source_pocket,
+    pathway_dist_threshold=20,
+    top_pathways=10,
+    path=path
+):
+    cif = Cif(pdb, f"{path}/{pdb}.cif")
+    
+    # Parse the structure file with ProDy
+    prodycif = ProDyF(cif)
+    atoms = prodycif._cas # parseMMCIF(cif.filename).select('name CA')
+    nodes = prodycif._res_df
+
+    # Calculate correlationplus network or read and obtain Graph
+    if pathways == "correlationplus":
+        G = get_correlationplus_network(
+            atoms,
+            nodes,
+            pdb,
+            path=path
+        )
+    elif pathways == "prs":
+        G = get_prs_network(
+            prodycif,
+            pdb,
+            nodes,
+            path=path
+        )
+    
+    # Determine sources and calculate shortest paths using sources (fast calculation)
+    sources = (
+        nodes.merge(
+            Pocket(f"{path}/{pdb}/{pdb}_out/pockets/{source_pocket}_atm.cif").residues, 
+            how="left", indicator=True
+        )
+        .query("_merge == 'both'").drop(columns="_merge")
+    ) # DataFrame with the nodes/CA atoms corresponding to the pocket to use as pathway sources
+    paths_lengths, paths = nx.shortest_paths.multi_source_dijkstra(
+        G, sources=sources.index.to_list(), target=None, cutoff=None, weight='distance'
+    )
+    
+    # Determine targets based on distance from sources and filter paths
+    sources_selstr = "( " + " or ".join((
+        selstr
+        for g, res in sources.groupby("auth_asym_id")
+            for selstr in (
+                f"""( chain {g} and (resnum {' '.join(f"{str(resnum)}{'_' if inscode == '?' else inscode}" for resnum, inscode in res[['auth_seq_id', 'pdbx_PDB_ins_code']].values)}) )""",
+            # for insertion codes http://www.bahargroup.org/prody/manual/reference/atomic/select.html#atom-data-fields
+            )
+    )) + " )"
+    targets = nodes.merge(
+        pd.DataFrame(
+            *(
+                {
+                    "auth_asym_id": selatoms.getChids(), # label_asym_id are stored in getSegnames; newer prody versions might make them Chids
+                    "auth_seq_id": selatoms.getResnums(),
+                    "pdbx_PDB_ins_code": (i or "?" for i in selatoms.getIcodes())
+                }
+                for selatoms in (atoms.select(f'within {pathway_dist_threshold} of {sources_selstr}'),) # CAs within X Å of source, to filter them OUT)
+            ),
+            dtype=str
+        ),
+        how="left", indicator=True
+    ).query("_merge == 'left_only'").drop(columns="_merge")
+    selected_paths = tuple(k for k in paths_lengths if k in targets.index) # List of selected paths, sorted by ascending path length (paths_lengths is sorted)
+
+    return pd.concat(
+        cif.atoms.merge(
+            nodes.loc[paths[p]].assign(label_atom_id="CA")
+        ).assign(
+            label_entity_id='98',
+            label_asym_id=f"P{p}_top{i}",
+            label_seq_id=lambda df: tuple(str(i) for i in range(1, len(df)+1)),
+            occupancy = paths_lengths[p]
+        )
+        for i, p in enumerate(selected_paths[:top_pathways], 1)
+    ), G
+
+paultol_palette = (
+    ('blue', '#4477AA'), ('cyan', '#66CCEE'), ('green', '#228833'), ('yellow', '#CCBB44'), ('red', '#EE6677'), ('purple', '#AA3377'), ('grey', '#BBBBBB'),
+    ('light blue', '#77AADD'), ('light cyan', '#99DDFF'), ('mint green', '#44BB99'), ('sand', '#DDCC77'), ('pink', '#CC6677'), ('plum', '#882255'), ('pale grey', '#DDDDDD'),
+    ('steel blue', '#AAAAEE'), ('sky blue', '#117733'), ('orange', '#EEDD88'), ('raspberry', '#EE8866'), ('dark purple', '#9988DD'), ('olive', '#661100'), ('light brown', '#444444')
+)
+
+def view_pockets_pathways(
+    pdb, 
+    pathways:("correlationplus", "prs"), # , "essa"
+    source_pocket,
+    pathway_dist_threshold=20,
+    n_top_pathways=10,
+    pathways_colors=paultol_palette,
+    pockets:dict={}, # {"pocketn": {"color": ""}}
+    protein_chains=None,
+    site_residues=None,
+    modulator_residues=None,
+    path=path
+):
+    # Establish PDB
+    if type(pdb) == str:
+        os.makedirs(path, exist_ok=True)
+        Cif.path = path
+        Cif.original_cifs_path = path
+        pdb = Cif(pdb, filename=f"{path}/{pdb}.cif")
+
+    chains = protein_chains or pdb.residues.label_asym_id.unique().tolist()
+    pdb = pdb.entry_id
+    cif = Cif(pdb, f"{path}/{pdb}_updated.cif")
+
+    if len(pockets) > 0:
+        pockets = {
+            pocketn: {
+                "atoms": get_pocket(pdb, pocketn, path=path),
+                "color": colors.get(pocket["color"], pocket["color"])
+            }
+            for pocketn, pocket in pockets.items()
+        }
+
+    pathways, _ = get_pathways(pdb, pathways, source_pocket, pathway_dist_threshold, n_top_pathways, path)
+    
+
+    # Fake entity data
+    entities = pd.concat((
+        pd.DataFrame(cif.cif.data["_entity"], dtype=str),#.query(f"id in {minimal_elements('label_entity_id')}"),
+        pd.DataFrame([
+            {"id": "99", "type": "branched", "pdbx_description": "pockets"}, # Fake the pockets as carbohydrates to separate their rep. from other ligands
+            {"id": "98", "type": "polymer", "pdbx_description": "pathways"}
+        ]) 
+    )).fillna(".")
+
+    
+    columns = list( set.intersection( *map(set, (pocket["atoms"].columns for pocket in pockets.values())) ) )
+    atoms = pd.concat((
+        cif.atoms[columns],
+        *(pocket["atoms"][columns] for pocket in pockets.values()),
+        pathways[columns]
+    ))
+
+    with tempfile.NamedTemporaryFile("w+", suffix=".cif") as f:
+        writer = CifFileWriter(f.name)
+        writer.write({cif.entry_id.upper(): {
+            "_entity": entities.to_dict(orient="list"),
+            "_atom_site": atoms.to_dict(orient="list"),
+        }})
+        combined = Cif(pdb, filename=f.name)
+        combined.cif.data # to cache it while 'f' exists
+
+    data = [
+        # Protein
+        {"struct_asym_id": asym_id, 'representation': 'cartoon', 'representationColor': '#DADADA', 'focus': True}
+        for asym_id in chains
+    ]
+
+    if site_residues is not None:
+        data += [
+            {'struct_asym_id': r["label_asym_id"], 'residue_number': int(r["label_seq_id"]), 'representationColor': colors["green"]}
+            for i, r in site_residues.iterrows()
+        ]
+        
+    # Ligands and molecules
+    if modulator_residues is not None:
+        data += [
+            {'struct_asym_id': r["label_asym_id"], 'color': 'white'}
+            for i, r in (
+                combined.residues
+                # Not modulator residues and only small molecule entities
+                .merge(
+                    modulator_residues if modulator_residues is not None else pd.DataFrame(columns=combined.residues.columns), # if modulator_residues not passed, empty df
+                    how="outer", indicator=True
+                )
+                .query(f"""_merge == 'left_only' and label_entity_id in {entities.query("type == 'non-polymer'").id.unique().tolist()}""")
+                .drop(columns="_merge")
+                .iterrows()
+            
+            )
+        ]
+
+    # Pockets
+    if len(pockets) > 0:
+        data += [
+            {
+                "struct_asym_id": "ZZZ", 'residue_number': int(pocketn.replace('pocket', '')), 'representation': 'point', 'representationColor': pocket["color"]
+            }
+            for pocketn, pocket in pockets.items()
+        ]
+    
+        data += [
+            {
+                "struct_asym_id": "ZZZ", 'residue_number': int(pocketn.replace('pocket', '')), 'representation': 'gaussian-volume', 'representationColor': pocket["color"]
+            }
+            for pocketn, pocket in pockets.items()
+        ]
+
+    # Pathways
+    for i, (p, res) in enumerate(pathways.groupby("label_asym_id", sort=False)):
+        colorn, color = pathways_colors[i % len(pathways_colors)]
+        data += [
+            {
+                "struct_asym_id": p, 'representation': 'backbone', 'representationColor': color.lower()
+            }
+        ]
+        print(
+            f"Pathway #{p.split('_top')[-1]} ({colorn}): " + ', '.join((
+                ':'.join((
+                    r['auth_asym_id'],
+                    r['auth_comp_id'],
+                    r['auth_seq_id'] + r['pdbx_PDB_ins_code'].replace("?", "")
+                ))
+                for ri, r in res.iterrows()
+            ))
+        )
+
+    return view_pdb(
+        combined,
+        
+        hide_polymer = True,
+        # hide_heteroatoms = True,
+        # hide_non_standard = True,
+        hide_carbs = True,
+        hide_water = True,
+        
+        color_data = {
+            "data": data,
+            "nonSelectedColor": None,
+            "keepColors": True,
+            "keepRepresentations": False,
+        }
+    )
