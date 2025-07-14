@@ -29,16 +29,22 @@ def get_cif(
     path=path
 ):
     os.makedirs(path, exist_ok=True)
-    Pdb.path = path
-    Pdb.original_cifs_path = path
+    ciff = f"{path}/{pdb_id}_updated.cif.gz"
     
-    pdb = Pdb(pdb_id.lower())
-
-    # Save original and uncompressed cif
-    with open(f"{path}/{pdb.entry_id}_updated.cif.gz", "wb") as f:
-        f.write(pdb.cif._cif_content)
-    with open(f"{path}/{pdb.entry_id}_updated.cif", "w") as f:
-        f.write(pdb.cif.text)
+    if not os.path.isfile(ciff):
+        Pdb.path = path
+        Pdb.original_cifs_path = path
+        pdb = Pdb(pdb_id.lower())
+    
+        # Save original and uncompressed cif
+        with open(ciff, "wb") as f:
+            f.write(pdb.cif._cif_content)
+        # with open(f"{path}/{pdb.entry_id}_updated.cif", "w") as f:
+        #     f.write(pdb.cif.text)
+    else:
+        Cif.path = path
+        Cif.original_cifs_path = path
+        pdb = Cif(pdb_id.lower(), filename=ciff)
         
     # Cache the contents of the file
     pdb.cif.data
@@ -115,11 +121,7 @@ class Site:
             raise Exception("Pass one of 'modulator_residues' or 'residues'")
 
 
-def get_clean_pdb(pdb, protein_chains, path=path):
-    os.makedirs(path, exist_ok=True)
-    Cif.path = path
-    Cif.original_cifs_path = path
-    
+def get_clean_pdb(pdb, protein_chains, path=path):    
     fixed_structure = get_fixed_structure(pdb, pdb, list(protein_chains), path, save=True)
     with open(f"{path}/{pdb.entry_id}.cif", "w+") as f:
         writer = CifFileWriter(f.name, compress=False)
@@ -129,7 +131,10 @@ def get_clean_pdb(pdb, protein_chains, path=path):
                 "_entity_poly": pdb.cif.data["_entity_poly"]
             }
         })
-
+    
+    os.makedirs(path, exist_ok=True)
+    Cif.path = path
+    Cif.original_cifs_path = path
     cif = Cif(pdb.entry_id)
     # Cache the contents of the files
     cif.origcif.data
@@ -160,12 +165,13 @@ colors = {
 
 def get_pockets(
     clean_pdb,
-    path=path
+    out,
+    path=path,
 ):
     if not os.path.isdir(f"{path}/{clean_pdb.entry_id}/{clean_pdb.entry_id}_out"):
         os.makedirs(f"{path}/{clean_pdb.entry_id}", exist_ok=True)
         os.system(f"cp {clean_pdb.filename} {path}/{clean_pdb.entry_id}/")
-        os.system(f"fpocket -m 3 -M 6 -i 35 --file {path}/{clean_pdb.entry_id}/{clean_pdb.entry_id}.cif")
+        subprocess.run(f"fpocket -m 3 -M 6 -i 35 --file {path}/{clean_pdb.entry_id}/{clean_pdb.entry_id}.cif", shell=True, stdout=out, stderr=out)
 
     return pd.DataFrame((
         {"pocket": (
@@ -207,7 +213,7 @@ def view_pockets(
         
     chains = protein_chains or pdb.residues.label_asym_id.unique().tolist()
     pdb = pdb.entry_id
-    cif = Cif(pdb, f"{path}/{pdb}_updated.cif") # Final cif file has to be the complete cif file regardless
+    cif = Cif(pdb, f"{path}/{pdb}_updated.cif.gz") # Final cif file has to be the complete cif file regardless
 
     pockets = {
         pocketn: {
@@ -301,101 +307,102 @@ def view_pockets(
     )
 
 
+from utils.features_utils import get_pdb_features
 from utils.pocket_utils import Pocket, get_pockets_info, get_mean_pocket_features
-from utils.features_classes import * # Each FClass
-from utils.features_utils import calculate_features, get_pdb_features
+# from utils.features_classes import * # Each FClass
+# from utils.features_utils import calculate_features, get_pdb_features
 
 # Path to the mkdssp executable downloaded from https://github.com/PDB-REDO/dssp/releases/tag/v4.4.0
-BiopythonF.dssp_path = "training_data/utils/external/mkdssp-4.4.0-linux-x64" 
-os.chmod(BiopythonF.dssp_path, 0o755)
+# BiopythonF.dssp_path = "training_data/utils/external/mkdssp-4.4.0-linux-x64" 
+# os.chmod(BiopythonF.dssp_path, 0o755)
 # f"mkdssp --mmcif-dictionary {os.environ['CONDA_PREFIX']}/share/libcifpp/mmcif_pdbx.dic"#"training_data/utils/external/mkdssp-4.4.0-linux-x64"
 
-from colabfold.batch import get_msa_and_templates
-from colabfold.utils import DEFAULT_API_SERVER
-from pathlib import Path as plPath
+# from colabfold.batch import get_msa_and_templates
+# from colabfold.utils import DEFAULT_API_SERVER
+# from pathlib import Path as plPath
 
-class HHBlitsF_msa(HHBlitsF):
-    def _hhblits(self, seq, entity_id, *args, **kwargs):
-        fn = lambda ext: f"{self._path}/{self._jobname}_{entity_id}.{ext}"
-        jobname = f"AlloPockets_{self._jobname}"
+# class HHBlitsF_msa(HHBlitsF):
+#     def _hhblits(self, seq, entity_id, *args, **kwargs):
+#         fn = lambda ext: f"{self._path}/{self._jobname}_{entity_id}.{ext}"
+#         jobname = f"AlloPockets_{self._jobname}"
 
-        if not os.path.isfile(fn('a3m')):
-            with tempfile.TemporaryDirectory() as tmpdir:
-                get_msa_and_templates(
-                    jobname=jobname,
-                    query_sequences= seq,
-                    a3m_lines=None,
-                    result_dir=plPath(tmpdir),
-                    msa_mode= "mmseqs2_uniref", # earch against the UniRef database only (mmseqs2_uniref) or UniRef and ColabFoldDB (mmseqs2_uniref_env, default)
-                    use_templates= False, # AlphaPulldown uses True
-                    custom_template_path=None,
-                    pair_mode="none",
-                    host_url=DEFAULT_API_SERVER,
-                    user_agent=self._email #'alphapulldown'
-                )
-                subprocess.run(f"cp {tmpdir}/{jobname}_all/uniref.a3m {fn('a3m')}", shell=True)
+#         if not os.path.isfile(fn('a3m')):
+#             with tempfile.TemporaryDirectory() as tmpdir:
+#                 get_msa_and_templates(
+#                     jobname=jobname,
+#                     query_sequences= seq,
+#                     a3m_lines=None,
+#                     result_dir=plPath(tmpdir),
+#                     msa_mode= "mmseqs2_uniref", # earch against the UniRef database only (mmseqs2_uniref) or UniRef and ColabFoldDB (mmseqs2_uniref_env, default)
+#                     use_templates= False, # AlphaPulldown uses True
+#                     custom_template_path=None,
+#                     pair_mode="none",
+#                     host_url=DEFAULT_API_SERVER,
+#                     user_agent=self._email #'alphapulldown'
+#                 )
+#                 subprocess.run(f"cp {tmpdir}/{jobname}_all/uniref.a3m {fn('a3m')}", shell=True)
 
-        if not os.path.isfile(fn('hhm')):
-            subprocess.run(f"hhmake -i {fn('a3m')} -o {fn('hhm')} -v 0", shell=True)
+#         if not os.path.isfile(fn('hhm')):
+#             subprocess.run(f"hhmake -i {fn('a3m')} -o {fn('hhm')} -v 0", shell=True)
             
-        with open(fn("hhm"), "r") as fp:
-            data = []
-            seq = []
-            regex = re.compile("^\w\s\d+")
-            starting = 0
-            lines = fp.readlines()
-            for i in range(len(lines)):
-                if lines[i].startswith("NULL"):
-                    pieces = lines[i].split()
-                    seq.append([pieces[0]])
-                    data.append(
-                        [2 ** (-int(x) / 1000) if x != "*" else 0 for x in pieces[1:21]]
-                        + [0] * 10
-                    )
-                if lines[i].startswith("HMM    A	C	D"):
-                    col_desc = lines[i].split()[1:] + lines[i + 1].split()
-                    starting = 1
-                if starting > 0:
-                    starting += 1
-                if starting >= 4 and regex.match(lines[i]):
-                    pieces = lines[i].split()
-                    seq.append([pieces[0]])
-                    d = [2 ** (-int(x) / 1000) if x != "*" else 0 for x in pieces[2:22]]
-                    pieces = lines[i + 1].split()
-                    d += [2 ** (-int(x) / 1000) if x != "*" else 0 for x in pieces[:7]]
-                    d += [0.001 * int(x) for x in pieces[7:10]]
-                    data.append(d)
+#         with open(fn("hhm"), "r") as fp:
+#             data = []
+#             seq = []
+#             regex = re.compile("^\w\s\d+")
+#             starting = 0
+#             lines = fp.readlines()
+#             for i in range(len(lines)):
+#                 if lines[i].startswith("NULL"):
+#                     pieces = lines[i].split()
+#                     seq.append([pieces[0]])
+#                     data.append(
+#                         [2 ** (-int(x) / 1000) if x != "*" else 0 for x in pieces[1:21]]
+#                         + [0] * 10
+#                     )
+#                 if lines[i].startswith("HMM    A	C	D"):
+#                     col_desc = lines[i].split()[1:] + lines[i + 1].split()
+#                     starting = 1
+#                 if starting > 0:
+#                     starting += 1
+#                 if starting >= 4 and regex.match(lines[i]):
+#                     pieces = lines[i].split()
+#                     seq.append([pieces[0]])
+#                     d = [2 ** (-int(x) / 1000) if x != "*" else 0 for x in pieces[2:22]]
+#                     pieces = lines[i + 1].split()
+#                     d += [2 ** (-int(x) / 1000) if x != "*" else 0 for x in pieces[:7]]
+#                     d += [0.001 * int(x) for x in pieces[7:10]]
+#                     data.append(d)
     
-        df = pd.DataFrame(
-            np.hstack((np.vstack(seq), np.vstack(data))), columns=["seq"] + col_desc
-        )
+#         df = pd.DataFrame(
+#             np.hstack((np.vstack(seq), np.vstack(data))), columns=["seq"] + col_desc
+#         )
 
-        return df, None
+#         return df, None
 
             
-def get_colabfold_msa(
-    clean_pdb,
-    email,
-    path=path
-):    
-    # Establish PDB
-    if type(clean_pdb) == str:
-        os.makedirs(path, exist_ok=True)
-        Cif.path = path
-        Cif.original_cifs_path = path
-        clean_pdb = Cif(clean_pdb, filename=f"{path}/{clean_pdb}.cif")
-    pdb = clean_pdb.entry_id
+# def get_colabfold_msa(
+#     clean_pdb,
+#     email,
+#     path=path
+# ):    
+#     # Establish PDB
+#     if type(clean_pdb) == str:
+#         os.makedirs(path, exist_ok=True)
+#         Cif.path = path
+#         Cif.original_cifs_path = path
+#         clean_pdb = Cif(clean_pdb, filename=f"{path}/{clean_pdb}.cif")
+#     pdb = clean_pdb.entry_id
 
-    # Establish calc. data
-    HHBlitsF_msa._jobname = pdb
-    HHBlitsF_msa._email = email
-    HHBlitsF_msa._path = path
+#     # Establish calc. data
+#     HHBlitsF_msa._jobname = pdb
+#     HHBlitsF_msa._email = email
+#     HHBlitsF_msa._path = path
         
-    os.makedirs(f"{path}/features/{pdb}", exist_ok=True)
-    file = f"{path}/features/{pdb}/HHBlitsF.pkl"
-    if not os.path.isfile(file):
-        calculated = calculate_features(pdb, HHBlitsF_msa, file, path, path)
-        assert calculated, f"ColabFold MSA retrieval failed"
+#     os.makedirs(f"{path}/features/{pdb}", exist_ok=True)
+#     file = f"{path}/features/{pdb}/HHBlitsF.pkl"
+#     if not os.path.isfile(file):
+#         calculated = calculate_features(pdb, HHBlitsF_msa, file, path, path)
+#         assert calculated, f"ColabFold MSA retrieval failed"
         
 
 def get_features(
@@ -406,7 +413,7 @@ def get_features(
     os.makedirs(f"{path}/features/{clean_pdb.entry_id}", exist_ok=True)
     HHBlitsF.uniref_path = uniref_path
 
-    progressbar = tqdm(FClasses)
+    progressbar = tqdm(list(set(FClasses) - {PyRosettaF,}))
     for fc in progressbar:
         progressbar.set_description(f"Calculating {fc.__name__[:-1]}")
         file = f"{path}/features/{clean_pdb.entry_id}/{fc.__name__}.pkl"
@@ -716,7 +723,7 @@ def view_pockets_pathways(
 
     chains = protein_chains or pdb.residues.label_asym_id.unique().tolist()
     pdb = pdb.entry_id
-    cif = Cif(pdb, f"{path}/{pdb}_updated.cif")
+    cif = Cif(pdb, f"{path}/{pdb}_updated.cif.gz")
 
     if len(pockets) > 0:
         pockets = {
