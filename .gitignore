@@ -208,3 +208,6 @@ training_data/utils/external/*
 !training_data/utils/external/README.md
 
 predict/
+
+gradio/*/*
+!gradio/*

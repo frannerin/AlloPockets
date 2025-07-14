@@ -11,38 +11,37 @@ def calculate_features(pdb, fc, file, structures_path, original_cifs_path):
     Given a PDB ID and a feature class from the features_classes module, calculate the features from the fc and save them in the passed file path ('.pkl' file).
     """
     name = fc.__name__
-    if not os.path.isfile(file):
-        # Establish a Cif of the PDB ID and with the passed paths
-        Cif.path = structures_path
-        Cif.original_cifs_path = original_cifs_path
-        cif = Cif(pdb)
+    # Establish a Cif of the PDB ID and with the passed paths
+    Cif.path = structures_path
+    Cif.original_cifs_path = original_cifs_path
+    cif = Cif(pdb)
 
-        # Establish the feature class for feature calculation
-        setattr(cif, name, fc(cif))
-        feats = fc.features
+    # Establish the feature class for feature calculation
+    setattr(cif, name, fc(cif))
+    feats = fc.features
 
-        # Calculate each feature and save if successful; if there's an error there will be missing feature and it will be handled later
-        results = []
-        for feat in feats:
-            try:
-                start = time.time()
-                result = getattr(getattr(cif, name), feat)()
-                results.append({
-                    "pdb": pdb,
-                    "feature": feat,
-                    "result": result,
-                    "time": time.time() - start
-                })
-            except:
-                break
+    # Calculate each feature and save if successful; if there's an error there will be missing feature and it will be handled later
+    results = []
+    for feat in feats:
+        try:
+            start = time.time()
+            result = getattr(getattr(cif, name), feat)()
+            results.append({
+                "pdb": pdb,
+                "feature": feat,
+                "result": result,
+                "time": time.time() - start
+            })
+        except:
+            break
 
-        # If not all features, return False to be handled by the function calling calculate_features
-        if all(f in (d["feature"] for d in results) for f in feats):
-            with open(file, "wb") as f:
-                pickle.dump(results, f)
-            return True
-        else:
-            return False
+    # If not all features, return False to be handled by the function calling calculate_features
+    if all(f in (d["feature"] for d in results) for f in feats):
+        with open(file, "wb") as f:
+            pickle.dump(results, f)
+        return True
+    else:
+        return False
 
 
 

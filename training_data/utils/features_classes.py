@@ -320,75 +320,6 @@ class FreeSASAF:
         return resdf.merge(df).drop(columns="freesasaid") 
 
 
-## PyRosetta
-
-# In[21]:s
-
-
-from pyrosetta import init, pose_from_pdb, get_score_function; init("-mute core.pack basic core.scoring -ignore_zero_occupancy false")
-
-from .external import predict_ddG # script in-folder from pyrosetta tutorial
-
-
-# In[22]:
-
-
-class PyRosettaF:
-    def __init__(self, cif):
-        self._cif = cif
-
-    features = [
-        "ddG"
-    ]
-
-    @cached_property
-    def _pose(self):
-        return pose_from_pdb(self._cif.filename)
-    
-    
-    def _ddG(self):
-        # Create a energy function
-        sfxn = get_score_function(True)
-
-        pose = self._pose
-        pdbinfo = pose.pdb_info()
-
-        for i, res in enumerate(pose.residues, 1):
-            aa1 = res.name1()
-            resnum = res.seqpos()
-            # Repack and score the native conformation
-            mutated_pose = predict_ddG.mutate_residue(
-                pose,
-                mutant_position=resnum,
-                mutant_aa="A" if aa1 != "A" else "G",
-                pack_radius=8.0,
-                pack_scorefxn=sfxn
-            )
-            # Score the alanine mutated pose
-            score_A1 = sfxn.score(mutated_pose)
-            # Repack and score the original conformation
-            pose_1 = predict_ddG.mutate_residue(
-                pose,
-                mutant_position=resnum,
-                mutant_aa=aa1,
-                pack_radius=8.0,
-                pack_scorefxn=sfxn
-            )
-            score_1 = sfxn.score(pose_1)
-            # Compute the ddG of mutation as mutant_score - native_score (final-initial
-            ddG = score_A1 - score_1
-            
-            yield {
-                "auth_asym_id": pdbinfo.chain(i),
-                "auth_seq_id": str(pdbinfo.number(i)),
-                "pdbx_PDB_ins_code": pdbinfo.icode(i).replace(" ", "") or "?",
-                "ddG": ddG
-            }
-
-    def ddG(self):
-        return pd.DataFrame(self._ddG())
-
-
 
 ## ProDy
 
@@ -717,7 +648,7 @@ FClasses = [
     DSSPF,
     MelodiaF,
     BiopythonF,    
-    PyRosettaF,
+    # PyRosettaF,
     ProDyF,
     TransferEntropyF,
     HHBlitsF,
