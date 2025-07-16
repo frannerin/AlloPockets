@@ -1,4 +1,4 @@
-import os, tempfile, re, subprocess
+import os, tempfile, re, subprocess, pymol2
 import pandas as pd
 from tqdm.notebook import tqdm
 
@@ -6,7 +6,7 @@ from tqdm.notebook import tqdm
 import sys
 sys.path.append("training_data")
 
-from utils.new_pdbs import Pdb, cached_property
+from utils.new_pdbs import Pdb, cached_property, MMCIF2Dict
 from utils.structure_fixing import get_fixed_structure, CifFileWriter
 from utils.utils import Cif as BaseCif
 
@@ -24,27 +24,243 @@ path = "predict" # Path to write files and results to
 # uniref_path = "/data/fnerin/UniRef30_2023_02/UniRef30_2023_02" # Path to the uncompressed UniRef database
 
 
+import pymol2
+from Bio.SeqUtils import seq1, seq3, IUPACData
+from MDAnalysis.lib.util import inverse_aa_codes
+from Bio import SeqIO
+
+
+def write_cif(d, name, path):
+    with open(f"{path}/{name}_updated.cif", "w+") as f, open(f"{path}/{name}_updated.cif.gz", "w+") as fgz:
+        writer = CifFileWriter(f.name, compress=False)
+        writer.write(d)
+        writergz = CifFileWriter(fgz.name, compress=True)
+        writergz.write(d)
+    
+    Cif.path = path
+    Cif.original_cifs_path = path
+    return Cif(name, filename=f"{path}/{name}_updated.cif.gz")
+
+def standardize(cif, path, name):
+    atoms = cif.atoms
+
+    # Standardize 3-letter residue names for successful sequence extraction
+    d = {
+        **inverse_aa_codes,
+        **IUPACData.protein_letters_3to1_extended
+    }
+    
+    atoms["label_comp_id"] = [
+        seq3(seq1(
+            comp, 
+            custom_map = d
+        )).upper()
+            if any(i in d for i in (comp.lower(), comp.upper(), comp.capitalize()))
+            else comp
+        for comp in atoms["label_comp_id"] 
+    ]
+    if "auth_comp_id" in atoms:
+        atoms["auth_comp_id"] = [
+            seq3(seq1(
+                comp, 
+                custom_map = d
+            )).upper()
+                if any(i in d for i in (comp.lower(), comp.upper(), comp.capitalize()))
+                else comp
+            for comp in atoms["auth_comp_id"] 
+        ]
+    else:
+        atoms["auth_comp_id"] = atoms["label_comp_id"]
+
+    # Add mising columns, if any
+    if "auth_seq_id" not in atoms:
+        atoms["auth_seq_id"] = atoms["label_seq_id"] # label_seq_id will be standardized later: auth_seq_id preserves originals
+    if "auth_atom_id" not in atoms:        
+        atoms["auth_atom_id"] = atoms["label_atom_id"]
+
+    # A .cif saved from a PDB is going to put the info as label_* and the chain in auth_asym_id.
+    # if there is segid (~last column, ironically coming from label_asym_id,) it is put as auth_asym_id, and the main chain as label_asym_id
+    if (
+        "label_asym_id" not in atoms
+    ) or (
+        "label_asym_id" in atoms and all(atoms["label_asym_id"] == '.')
+    ):
+        atoms["label_asym_id"] = atoms["auth_asym_id"]
+    if "auth_asym_id" not in atoms:        
+        atoms["auth_asym_id"] = atoms["label_asym_id"]
+        
+
+    # Extract proteins
+    with tempfile.NamedTemporaryFile(suffix=".cif", mode="w+") as f:
+        writer = CifFileWriter(f.name, compress=False)
+        writer.write({
+            name.upper(): {
+                "_atom_site": atoms.to_dict(orient="list"),
+            }
+        })
+    
+        with pymol2.PyMOL() as pymol:
+            pymol.cmd.feedback("disable", "executive", "details") # to silence "ExecutiveLoad-Detail: Detected mmCIF"
+            pymol.cmd.load(f.name, name.upper())
+            protein_atoms = pymol.cmd.get_model(f"polymer.protein")
+
+    protein_res = pd.DataFrame(
+        set(tuple(
+            (
+                a.segi, a.chain, a.resn,
+                a.resi_number, a.ins_code or '?' # pdbx_PDB_ins_code or "?" if none
+            ) 
+            for a in protein_atoms.atom
+        )),
+        columns=[
+            "label_asym_id", "auth_asym_id", "auth_comp_id",
+            "auth_seq_id", "pdbx_PDB_ins_code"
+        ],
+        dtype=str
+    ).sort_values(
+        ["label_asym_id", "auth_seq_id", "pdbx_PDB_ins_code"], 
+        key=lambda x: x.astype(int) if x.name == "auth_seq_id" else x
+    )
+
+    # Extract sequences
+    seqs = {
+        cid: {"seq": "".join(map(lambda res: seq1(res, custom_map=d), cres["auth_comp_id"]))}
+        for cid, cres in protein_res.groupby("label_asym_id", sort=False)
+    }
+
+    
+    # Assign entity IDs and remap label_seq_id
+    entity_id, entities = 1, {}
+    for chainid, seqd in seqs.items():
+        # Establish entity IDs
+        seq = seqd["seq"]
+        if seq not in entities:
+            entities[seq] = str(entity_id)
+            entity_id += 1
+        i = entities[seq]
+        
+        protein_res.loc[lambda x: x["label_asym_id"] == chainid, "label_entity_id"] = f"{i}"
+        protein_res.loc[lambda x: x["label_asym_id"] == chainid, "label_seq_id"] = tuple(map(str, range(1, len(seq)+1))) # label_seq_id corresponds to positions in the saved sequence
+
+    # Add entity id and remapped seq id columns and fill entity_ids
+    atoms = (
+        atoms
+        .drop(columns=["label_seq_id", "label_entity_id"])
+        .reset_index()
+        .merge(protein_res, how="outer")
+        .set_index("index").sort_index().reset_index(drop=True)
+        .fillna({"label_seq_id": '.'})
+    )
+
+    
+    # Assemble new mmCIF elements necessary for downstream tasks
+    entity = []
+    entity_poly = []
+    pdbx_poly_seq_scheme = []
+    for entid, entatoms in atoms.groupby("label_entity_id"):
+        if entid != ".":
+            entity.append({"id": entid, "type": "polymer", "pdbx_description": "Protein"})
+            seq = next( seq for seq, eid in entities.items() if str(eid) == entid)
+            entity_poly.append({
+                "entity_id": entid,
+                "type": 'polypeptide(L)',
+                "pdbx_seq_one_letter_code_can": seq.replace("?", "X"),
+                "pdbx_strand_id": ",".join(entatoms.label_asym_id.unique())
+            })
+
+            for asym_id, asym_atoms in entatoms.groupby("label_asym_id"):
+                pdbx_poly_seq_scheme.extend(
+                    asym_atoms
+                    .reset_index()
+                    .merge(protein_res)[
+                        ['index', "label_asym_id", "label_entity_id", "label_comp_id", "label_seq_id", "pdbx_PDB_ins_code", "auth_asym_id", "auth_seq_id"]
+                    ]
+                    .drop_duplicates()
+                    .set_index("index").sort_index().reset_index(drop=True)
+                    .rename(columns={
+                        "label_asym_id": "asym_id",
+                        "label_entity_id": "entity_id",
+                        "label_comp_id": "mon_id",
+                        "label_seq_id": "seq_id",
+                        "pdbx_PDB_ins_code": "pdb_ins_code",
+                        "auth_asym_id": "pdb_strand_id",
+                        "auth_seq_id": "pdb_seq_num"
+                    })
+                    .to_dict(orient="records")
+                )
+
+    # Complete entities with ligands
+    for res, resatoms in atoms.query(f"label_entity_id not in {list(entities.values())}").groupby("label_comp_id", sort=False):
+        atoms.loc[resatoms.index, "label_entity_id"] = str(entity_id)
+        entity.append({"id": str(entity_id), "type": "non-polymer", "pdbx_description": "Ligand"})
+        entity_id += 1
+
+    # Write standardized cif
+    d = {
+        name.upper(): {
+            "_atom_site": atoms.to_dict(orient="list"),
+            "_entity": pd.DataFrame(entity, dtype=str).to_dict(orient="list"),
+            "_entity_poly": pd.DataFrame(entity_poly, dtype=str).to_dict(orient="list"),
+            "_pdbx_poly_seq_scheme": pd.DataFrame(pdbx_poly_seq_scheme, dtype=str).to_dict(orient="list"),
+        }
+    }
+    return write_cif(d, cif.entry_id, path)
+
+
+
+def convert_pdb(file, path):
+    name = file.rsplit('/', 1)[-1].split('.')[0].replace(" ", "_")
+    
+    with pymol2.PyMOL() as pymol:
+        pymol.cmd.load(file, name.upper())
+        pymol.cmd.save(f"{path}/{name}_converted.cif", name.upper())
+        # A .cif saved from a PDB is going to put the info as label_* and the chain in auth_asym_id.
+        # if there is segid (~last column, ironically coming from label_asym_id,) it is put as auth_asym_id, and the main chain as label_asym_id
+    
+    Cif.path = path
+    Cif.original_cifs_path = path
+    cif = Cif(name, filename=f"{path}/{name}_converted.cif")
+
+    return standardize(cif, path, name)
+
+
+def complete_cif(file, path):
+    cifd = MMCIF2Dict().parse(file)
+    name = tuple(cifd.keys())[0]
+    
+    if any(loop not in cifd[name] for loop in ["_atom_site", "_entity_poly", "_pdbx_poly_seq_scheme", "_entity"]):
+        return standardize(Cif(name, filename=file), path, name)
+    else:
+        return write_cif(cifd, name, path)
+
+
+
+
 def get_cif(
-    pdb_id,
+    pdb_id=None,
+    file=None,
     path=path
 ):
+    assert not (pdb_id is None and file is None), "Provide one of pdb_id or file"
     os.makedirs(path, exist_ok=True)
-    ciff = f"{path}/{pdb_id}_updated.cif.gz"
-    
-    if not os.path.isfile(ciff):
+    if pdb_id is not None:
         Pdb.path = path
         Pdb.original_cifs_path = path
+        
         pdb = Pdb(pdb_id.lower())
     
         # Save original and uncompressed cif
-        with open(ciff, "wb") as f:
+        with open(f"{path}/{pdb.entry_id}_updated.cif.gz", "wb") as f:
             f.write(pdb.cif._cif_content)
         # with open(f"{path}/{pdb.entry_id}_updated.cif", "w") as f:
         #     f.write(pdb.cif.text)
-    else:
-        Cif.path = path
-        Cif.original_cifs_path = path
-        pdb = Cif(pdb_id.lower(), filename=ciff)
+    elif file is not None:
+        if ".pdb" in file:
+            pdb = convert_pdb(file, path)
+        elif ".cif" in file:
+            pdb = complete_cif(file, path)
+        else:
+            raise Exception("Provide a valid .pdb or .cif (or .cif.gz) file")
         
     # Cache the contents of the file
     pdb.cif.data
@@ -203,14 +419,7 @@ def view_pockets(
     site_residues=None,
     modulator_residues=None,
     path=path
-):
-    # Establish PDB
-    if type(pdb) == str:
-        os.makedirs(path, exist_ok=True)
-        Cif.path = path
-        Cif.original_cifs_path = path
-        pdb = Cif(pdb, filename=f"{path}/{pdb}.cif")
-        
+):        
     chains = protein_chains or pdb.residues.label_asym_id.unique().tolist()
     pdb = pdb.entry_id
     cif = Cif(pdb, f"{path}/{pdb}_updated.cif.gz") # Final cif file has to be the complete cif file regardless
@@ -380,18 +589,12 @@ from utils.pocket_utils import Pocket, get_pockets_info, get_mean_pocket_feature
 #         return df, None
 
             
-# def get_colabfold_msa(
-#     clean_pdb,
-#     email,
-#     path=path
-# ):    
-#     # Establish PDB
-#     if type(clean_pdb) == str:
-#         os.makedirs(path, exist_ok=True)
-#         Cif.path = path
-#         Cif.original_cifs_path = path
-#         clean_pdb = Cif(clean_pdb, filename=f"{path}/{clean_pdb}.cif")
-#     pdb = clean_pdb.entry_id
+def get_colabfold_msa(
+    clean_pdb,
+    email,
+    path=path
+):
+    pdb = clean_pdb.entry_id
 
 #     # Establish calc. data
 #     HHBlitsF_msa._jobname = pdb
@@ -503,14 +706,6 @@ def predict(
     if email == "youremail@yourinstitution.com":
         print("Please provide a valid email")
         return
-    
-        
-    # Establish PDB
-    if type(pdb) == str:
-        os.makedirs(path, exist_ok=True)
-        Cif.path = path
-        Cif.original_cifs_path = path
-        pdb = Cif(pdb, filename=f"{path}/{pdb}_updated.cif")
 
     # Clean PDB
     protein_chains = protein_chains or pdb.residues.query(f"label_entity_id in {pdb._protein_entities}").label_asym_id.unique().tolist()
@@ -553,7 +748,8 @@ def predict(
     
     preds = model.predict_proba(data)[[1]].sort_values(1, ascending=False).rename(columns={1: "Allosteric score"})
     preds.index = preds.index.map(lambda x: x.split("_")[-1])
-    return preds
+    
+    return clean_pdb, preds
 
 
 
@@ -616,17 +812,18 @@ def get_prs_network(
     return G
 
 def get_pathways(
-    pdb,
+    clean_pdb,
     pathways,
     source_pocket,
     pathway_dist_threshold=20,
     top_pathways=10,
     path=path
 ):
-    cif = Cif(pdb, f"{path}/{pdb}.cif")
+    # cif = Cif(pdb, f"{path}/{pdb}.cif")
+    pdb = clean_pdb.entry_id
     
     # Parse the structure file with ProDy
-    prodycif = ProDyF(cif)
+    prodycif = ProDyF(clean_pdb)
     atoms = prodycif._cas # parseMMCIF(cif.filename).select('name CA')
     nodes = prodycif._res_df
 
@@ -684,7 +881,7 @@ def get_pathways(
     selected_paths = tuple(k for k in paths_lengths if k in targets.index) # List of selected paths, sorted by ascending path length (paths_lengths is sorted)
 
     return pd.concat(
-        cif.atoms.merge(
+        clean_pdb.atoms.merge(
             nodes.loc[paths[p]].assign(label_atom_id="CA")
         ).assign(
             label_entity_id='98',
@@ -702,7 +899,7 @@ paultol_palette = (
 )
 
 def view_pockets_pathways(
-    pdb, 
+    clean_pdb, 
     pathways:("correlationplus", "prs"), # , "essa"
     source_pocket,
     pathway_dist_threshold=20,
@@ -714,15 +911,17 @@ def view_pockets_pathways(
     modulator_residues=None,
     path=path
 ):
-    # Establish PDB
-    if type(pdb) == str:
-        os.makedirs(path, exist_ok=True)
-        Cif.path = path
-        Cif.original_cifs_path = path
-        pdb = Cif(pdb, filename=f"{path}/{pdb}.cif")
+    # # Establish PDB
+    # if type(pdb) == str:
+    #     os.makedirs(path, exist_ok=True)
+    #     Cif.path = path
+    #     Cif.original_cifs_path = path
+    #     pdb = Cif(pdb, filename=f"{path}/{pdb}.cif")
 
-    chains = protein_chains or pdb.residues.label_asym_id.unique().tolist()
-    pdb = pdb.entry_id
+    pathways, _ = get_pathways(clean_pdb, pathways, source_pocket, pathway_dist_threshold, n_top_pathways, path)
+
+    chains = protein_chains or clean_pdb.residues.label_asym_id.unique().tolist()
+    pdb = clean_pdb.entry_id
     cif = Cif(pdb, f"{path}/{pdb}_updated.cif.gz")
 
     if len(pockets) > 0:
@@ -733,9 +932,6 @@ def view_pockets_pathways(
             }
             for pocketn, pocket in pockets.items()
         }
-
-    pathways, _ = get_pathways(pdb, pathways, source_pocket, pathway_dist_threshold, n_top_pathways, path)
-    
 
     # Fake entity data
     entities = pd.concat((
@@ -771,7 +967,7 @@ def view_pockets_pathways(
 
     if site_residues is not None:
         data += [
-            {'struct_asym_id': r["label_asym_id"], 'residue_number': int(r["label_seq_id"]), 'representationColor': colors["green"]}
+            {'struct_asym_id': r["label_asym_id"], 'residue_number': int(r["label_seq_id"]), 'representationColor': "black"}
             for i, r in site_residues.iterrows()
         ]
         
