@@ -209,7 +209,7 @@ def standardize(cif, path, name):
 
 
 def convert_pdb(file, path):
-    name = file.rsplit('/', 1)[-1].split('.')[0].replace(" ", "_")
+    name = file.rsplit('/', 1)[-1].split('.', 1)[0].replace(" ", "_")
     
     with pymol2.PyMOL() as pymol:
         pymol.cmd.load(file, name.upper())
@@ -229,9 +229,18 @@ def complete_cif(file, path):
     name = tuple(cifd.keys())[0]
     
     if any(loop not in cifd[name] for loop in ["_atom_site", "_entity_poly", "_pdbx_poly_seq_scheme", "_entity"]):
+        # Dirty fix for lowercase cif data names
+        if name != name.upper():
+            with open(f"{path}/{name}_converted.cif", "w+") as f:
+                writer = CifFileWriter(f.name, compress=False)
+                writer.write({name.upper(): cifd[name]})
+                
+                file = f.name
+                name = name.upper()
+                
         return standardize(Cif(name, filename=file), path, name)
     else:
-        return write_cif(cifd, name, path)
+        return write_cif({name.upper(): cifd[name]}, name, path)
 
 
 
