@@ -763,8 +763,11 @@ def predict(
 
 
 
+sys.path.append("gradio")
+from prody_class import ProDyF
 
 import networkx as nx
+import numpy as np
 from correlationplus.calculate import calcENMnDCC
 
 def get_correlationplus_network(
@@ -802,7 +805,8 @@ def get_prs_network(
     # Calculate PRS or read
     networkf = f"{path}/{pdb}_prody_prs_matrix.dat"
     if not os.path.isfile(networkf):
-        prs_mat, _ = prodycif._prs()
+        (prs_mat, _, _) = prodycif._prs()
+        np.savetxt(networkf, prs_mat, fmt='%.6f')
     else:
         prs_mat = np.loadtxt(networkf, dtype=float)
     
@@ -819,6 +823,119 @@ def get_prs_network(
                 # e.g., https://www.pnas.org/doi/full/10.1073/pnas.0810961106
     
     return G
+
+
+
+def get_unfiltered_pathways(
+    clean_pdb,
+    pathways,
+    pathwaysf,
+    source_pocket,
+    path=path
+):
+    # cif = Cif(pdb, f"{path}/{pdb}.cif")
+    pdb = clean_pdb.entry_id
+    
+    # Parse the structure file with ProDy
+    prodycif = ProDyF(clean_pdb)
+    atoms = prodycif._cas # parseMMCIF(cif.filename).select('name CA')
+    nodes = prodycif._res_df
+
+
+    # Calculate correlationplus network or read and obtain Graph
+    if pathways == "correlationplus":
+        G = get_correlationplus_network(
+            atoms,
+            nodes,
+            pdb,
+            path=path
+        )
+    elif pathways == "prs":
+        G = get_prs_network(
+            prodycif,
+            pdb,
+            nodes,
+            path=path
+        )
+
+    # Determine sources and calculate shortest paths using sources (fast calculation)
+    sources = (
+        nodes.merge(
+            Pocket(f"{path}/{pdb}/{pdb}_out/pockets/{source_pocket}_atm.cif").residues, 
+            how="left", indicator=True
+        )
+        .query("_merge == 'both'").drop(columns="_merge")
+    ) # DataFrame with the nodes/CA atoms corresponding to the pocket to use as pathway sources
+    paths_lengths, paths = nx.shortest_paths.multi_source_dijkstra(
+        G, sources=sources.index.to_list(), target=None, cutoff=None, weight='distance'
+    )
+
+    pd.to_pickle(
+        (sources, paths, paths_lengths),
+        pathwaysf
+    )
+
+
+
+
+def get_filtered_pathways(
+    clean_pdb,
+    pathways,
+    pathwaysf,
+    source_pocket,
+    pathway_dist_threshold,
+    top_pathways,
+    path=path
+):
+    # cif = Cif(pdb, f"{path}/{pdb}.cif")
+    pdb = clean_pdb.entry_id
+    
+    # Parse the structure file with ProDy
+    prodycif = ProDyF(clean_pdb)
+    atoms = prodycif._cas # parseMMCIF(cif.filename).select('name CA')
+    nodes = prodycif._res_df
+
+    pathwaysf = f"{path}/{pdb}/{pathways}_{source_pocket}.pkl"
+    (sources, paths, paths_lengths) = pd.read_pickle(pathwaysf)
+
+    # Determine targets based on distance from sources and filter paths
+    sources_selstr = "( " + " or ".join((
+        selstr
+        for g, res in sources.groupby("auth_asym_id")
+            for selstr in (
+                f"""( chain {g} and (resnum {' '.join(f"{str(resnum)}{'_' if inscode == '?' else inscode}" for resnum, inscode in res[['auth_seq_id', 'pdbx_PDB_ins_code']].values)}) )""",
+            # for insertion codes http://www.bahargroup.org/prody/manual/reference/atomic/select.html#atom-data-fields
+            )
+    )) + " )"
+    targets = nodes.merge(
+        pd.DataFrame(
+            *(
+                {
+                    "auth_asym_id": selatoms.getChids(), # label_asym_id are stored in getSegnames; newer prody versions might make them Chids
+                    "auth_seq_id": selatoms.getResnums(),
+                    "pdbx_PDB_ins_code": (i or "?" for i in selatoms.getIcodes())
+                }
+                for selatoms in (atoms.select(f'within {pathway_dist_threshold} of {sources_selstr}'),) # CAs within X Å of source, to filter them OUT)
+            ),
+            dtype=str
+        ),
+        how="left", indicator=True
+    ).query("_merge == 'left_only'").drop(columns="_merge")
+    selected_paths = tuple(k for k in paths_lengths if k in targets.index) # List of selected paths, sorted by ascending path length (paths_lengths is sorted)
+
+    return pd.concat(
+        clean_pdb.atoms.merge(
+            nodes.loc[paths[p]].assign(label_atom_id="CA")
+        ).assign(
+            label_entity_id='98',
+            label_asym_id=f"P{p}_top{i}",
+            label_seq_id=lambda df: tuple(str(i) for i in range(1, len(df)+1)),
+            occupancy = paths_lengths[p]
+        )
+        for i, p in enumerate(selected_paths[:top_pathways], 1)
+    )
+
+
 
 def get_pathways(
     clean_pdb,
