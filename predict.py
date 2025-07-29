@@ -204,13 +204,11 @@ def standardize(cif, path, name):
             "_pdbx_poly_seq_scheme": pd.DataFrame(pdbx_poly_seq_scheme, dtype=str).to_dict(orient="list"),
         }
     }
-    return write_cif(d, cif.entry_id, path)
+    return write_cif(d, name, path)
 
 
 
-def convert_pdb(file, path):
-    name = file.rsplit('/', 1)[-1].split('.', 1)[0].replace(" ", "_")
-    
+def convert_pdb(file, name, path):
     with pymol2.PyMOL() as pymol:
         pymol.cmd.load(file, name.upper())
         pymol.cmd.save(f"{path}/{name}_converted.cif", name.upper())
@@ -219,28 +217,18 @@ def convert_pdb(file, path):
     
     Cif.path = path
     Cif.original_cifs_path = path
-    cif = Cif(name, filename=f"{path}/{name}_converted.cif")
-
-    return standardize(cif, path, name)
-
-
-def complete_cif(file, path):
-    cifd = MMCIF2Dict().parse(file)
-    name = tuple(cifd.keys())[0]
     
-    if any(loop not in cifd[name] for loop in ["_atom_site", "_entity_poly", "_pdbx_poly_seq_scheme", "_entity"]):
-        # Dirty fix for lowercase cif data names
-        if name != name.upper():
-            with open(f"{path}/{name}_converted.cif", "w+") as f:
-                writer = CifFileWriter(f.name, compress=False)
-                writer.write({name.upper(): cifd[name]})
-                
-                file = f.name
-                name = name.upper()
-                
+    return standardize(Cif(name, filename=f"{path}/{name}_converted.cif"), path, name)
+
+
+def complete_cif(file, name, path):
+    cifd = MMCIF2Dict().parse(file)
+    dname = tuple(cifd.keys())[0]
+    
+    if any(loop not in cifd[dname] for loop in ["_atom_site", "_entity_poly", "_pdbx_poly_seq_scheme", "_entity"]):
         return standardize(Cif(name, filename=file), path, name)
     else:
-        return write_cif({name.upper(): cifd[name]}, name, path)
+        return write_cif(cifd, name, path)
 
 
 
@@ -248,6 +236,7 @@ def complete_cif(file, path):
 def get_cif(
     pdb_id=None,
     file=None,
+    name=None,
     path=path
 ):
     assert not (pdb_id is None and file is None), "Provide one of pdb_id or file"
@@ -265,9 +254,14 @@ def get_cif(
         #     f.write(pdb.cif.text)
     elif file is not None:
         if ".pdb" in file:
-            pdb = convert_pdb(file, path)
+            pdb = convert_pdb(file, name, path)
         elif ".cif" in file:
-            pdb = complete_cif(file, path)
+            with open(f"{path}/{name}_converted.cif", "w+") as f:
+                writer = CifFileWriter(f.name, compress=False)
+                writer.write({name.upper(): tuple(MMCIF2Dict().parse(file).values())[0]})
+                file = f.name
+                
+            pdb = complete_cif(file, name, path)
         else:
             raise Exception("Provide a valid .pdb or .cif (or .cif.gz) file")
         
