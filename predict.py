@@ -4,7 +4,7 @@ from tqdm.notebook import tqdm
 
 
 import sys
-sys.path.append("training_data")
+sys.path.append(__file__.rsplit("/", 1)[0] + "/training_data")
 
 from utils.new_pdbs import Pdb, cached_property, MMCIF2Dict
 from utils.structure_fixing import get_fixed_structure, CifFileWriter
@@ -254,11 +254,14 @@ def get_cif(
         #     f.write(pdb.cif.text)
     elif file is not None:
         if ".pdb" in file:
+            name = name or file.rsplit("/", 1)[-1].split(".", 1)[0].replace(" ", "_")
             pdb = convert_pdb(file, name, path)
         elif ".cif" in file:
+            cifd = MMCIF2Dict().parse(file)
+            name = name or tuple(cifd.keys())[0].lower()
             with open(f"{path}/{name}_converted.cif", "w+") as f:
                 writer = CifFileWriter(f.name, compress=False)
-                writer.write({name.upper(): tuple(MMCIF2Dict().parse(file).values())[0]})
+                writer.write({name.upper(): tuple(cifd.values())[0]})
                 file = f.name
                 
             pdb = complete_cif(file, name, path)
@@ -685,7 +688,7 @@ def get_pockets_features(
 
 from autogluon.tabular import TabularDataset, TabularPredictor
 
-model = TabularPredictor.load("models/pockets_physchem_deploy")
+model = TabularPredictor.load(__file__.rsplit("/", 1)[0] + "/models/pockets_physchem_deploy")
 
 def prepare_data(df):
     df.index = df["Pockets"][["pdb", "pocket"]].apply(lambda x: "_".join(x), axis=1)
@@ -757,7 +760,7 @@ def predict(
 
 
 
-sys.path.append("gradio")
+sys.path.append(__file__.rsplit("/", 1)[0] + "/gradio")
 from prody_class import ProDyF
 
 import networkx as nx

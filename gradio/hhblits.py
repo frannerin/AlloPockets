@@ -104,7 +104,7 @@ import sys, os
 
 _, pdb, path = sys.argv
 
-sys.path.append("training_data")
+sys.path.append(__file__.rsplit("/", 2)[0] + "/training_data")
 from utils.features_utils import calculate_features
 
 if __name__ == '__main__':

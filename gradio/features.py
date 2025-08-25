@@ -1,11 +1,11 @@
 import sys, os, pickle
 
-sys.path.append("training_data")
+sys.path.append(__file__.rsplit("/", 2)[0] + "/training_data")
 
 from utils.features_utils import calculate_features
 from features_classes import *
 # BiopythonF.dssp_path = "../training_data/utils/external/mkdssp-4.4.0-linux-x64"
-BiopythonF.dssp_path = "training_data/utils/external/mkdssp-4.4.0-linux-x64" 
+BiopythonF.dssp_path = __file__.rsplit("/", 2)[0] + "/training_data/utils/external/mkdssp-4.4.0-linux-x64" 
 os.chmod(BiopythonF.dssp_path, 0o755)
 
 

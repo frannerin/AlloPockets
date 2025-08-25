@@ -211,3 +211,5 @@ predict/
 
 gradio/*/*
 !gradio/*
+
+ensembles/
