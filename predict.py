@@ -1,10 +1,12 @@
 import os, tempfile, re, subprocess, pymol2
 import pandas as pd
 from tqdm.notebook import tqdm
+from pathlib import Path
+cwd = Path(__file__).resolve().parent
 
 
 import sys
-sys.path.append("training_data")
+sys.path.append(str( cwd / "training_data" ))
 
 from utils.new_pdbs import Pdb, cached_property, MMCIF2Dict
 from utils.structure_fixing import get_fixed_structure, CifFileWriter
@@ -521,7 +523,7 @@ from utils.features_classes import * # Each FClass
 from utils.features_utils import calculate_features, get_pdb_features
 
 # Path to the mkdssp executable downloaded from https://github.com/PDB-REDO/dssp/releases/tag/v4.4.0
-BiopythonF.dssp_path = "training_data/utils/external/mkdssp-4.4.0-linux-x64" 
+BiopythonF.dssp_path = str( cwd / "training_data/utils/external/mkdssp-4.4.0-linux-x64" )
 os.chmod(BiopythonF.dssp_path, 0o755)
 # f"mkdssp --mmcif-dictionary {os.environ['CONDA_PREFIX']}/share/libcifpp/mmcif_pdbx.dic"#"training_data/utils/external/mkdssp-4.4.0-linux-x64"
 
@@ -681,7 +683,7 @@ def get_pockets_features(
 
 from autogluon.tabular import TabularDataset, TabularPredictor
 
-model = TabularPredictor.load("models/pockets_physchem_deploy")
+model = TabularPredictor.load(str( cwd / "models/pockets_physchem_deploy" ))
 
 def prepare_data(df):
     df.index = df["Pockets"][["pdb", "pocket"]].apply(lambda x: "_".join(x), axis=1)

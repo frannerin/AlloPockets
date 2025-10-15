@@ -3,3 +3,4 @@ git clone the repos in their folders:
 - ALLO
 - AllosES
 - DeepAllo
+- AlloFusion
