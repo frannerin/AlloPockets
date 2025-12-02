@@ -219,5 +219,3 @@ predict/
 
 gradio/
 .gradio/
-
-ensembles/

@@ -1,0 +1,8 @@
+dependencies:
+  - python
+  - jupyterlab=4.2.5
+  - ipywidgets
+  - nb_conda_kernels
+  - pip
+  - pip:
+      - git+https://github.com/chaidiscovery/chai-lab.git
