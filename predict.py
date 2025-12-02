@@ -1,10 +1,12 @@
 import os, tempfile, re, subprocess, pymol2
 import pandas as pd
 from tqdm.notebook import tqdm
+from pathlib import Path
+cwd = Path(__file__).resolve().parent
 
 
 import sys
-sys.path.append(__file__.rsplit("/", 1)[0] + "/training_data")
+sys.path.append(str( cwd / "training_data" ))
 
 from utils.new_pdbs import Pdb, cached_property, MMCIF2Dict
 from utils.structure_fixing import get_fixed_structure, CifFileWriter
@@ -688,7 +690,7 @@ def get_pockets_features(
 
 from autogluon.tabular import TabularDataset, TabularPredictor
 
-model = TabularPredictor.load(__file__.rsplit("/", 1)[0] + "/models/pockets_physchem_deploy")
+model = TabularPredictor.load(str( cwd / "models/pockets_physchem_deploy" ))
 
 def prepare_data(df):
     df.index = df["Pockets"][["pdb", "pocket"]].apply(lambda x: "_".join(x), axis=1)
@@ -725,16 +727,18 @@ def predict(
     # Pockets
     pockets = get_pockets(
         clean_pdb,
+        out=None
         path=path
     )
     pockets["pdb"] = clean_pdb.entry_id
 
-    # ColabFold MSA if necessary:
-    get_colabfold_msa(
-        clean_pdb,
-        email=email,
-        path=path
-    )
+    if email is not None and uniref_path is None:
+        # ColabFold MSA if necessary:
+        get_colabfold_msa(
+            clean_pdb,
+            email=email,
+            path=path
+        )
     
     # Features
     features = get_features(
@@ -787,7 +791,7 @@ def get_correlationplus_network(
         
     for i in range(len(nodes)):
         for j in range(i+1, len(nodes)): # Matrix is symmetrical, only use upper
-            G.add_edge(i, j, value=cc_matrix[i, j], distance=-np.log(abs(cc_matrix[i, j]) + 10E-10) + 10E-10)
+            G.add_edge(i, j, value=cc_matrix[i, j], distance=1 / (abs(cc_matrix[i, j]) + 1 )) #-np.log(abs(cc_matrix[i, j]) + 10E-10) + 10E-10)
             # The approach in lit. is to use -log10(|corr|) as edge weights/distances in the network for analyses
             # e.g., https://www.pnas.org/doi/full/10.1073/pnas.0810961106
     
@@ -815,7 +819,7 @@ def get_prs_network(
     for i in range(len(nodes)):
         for j in range(len(nodes)):
             if i != j:
-                G.add_edge(i, j, value=prs_mat[i, j], distance=-np.log(abs(prs_mat[i, j]) + 10E-10) + 10E-10) # PRS values are always positive but abs() doesn't hurt
+                G.add_edge(i, j, value=prs_mat[i, j], distance= 1 / (abs(prs_mat[i, j]) + 1 ))#-np.log(abs(prs_mat[i, j]) + 10E-10) + 10E-10) # PRS values are always positive but abs() doesn't hurt
                 # The approach in lit. is to use -log10(|corr|) as edge weights/distances in the network for analyses
                 # e.g., https://www.pnas.org/doi/full/10.1073/pnas.0810961106
     

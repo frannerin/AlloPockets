@@ -61,8 +61,9 @@ def get_fixed_atoms(f, pdb, orig_atoms, no_alt=True, no_hetatm=True, standard_re
 
     # Transfer the new data for the newly added atoms 
     news = merged[orig_atoms.columns].isna().any(axis=1)
-    merged.loc[news, [c for c in newdf.columns if c not in mergecols]] = merged.loc[news, [f"{c}_new" for c in newdf.columns if c not in mergecols]].values
-
+    newcols = {c: (f"{c}_new" if c in orig_atoms else c) for c in newdf.columns if c not in mergecols}
+    merged.loc[news, newcols.keys()] = merged.loc[news, newcols.values()].values
+    
     # Update all positions with the filled-minimized coordinates
     merged.loc[:, ["Cartn_x", "Cartn_y", "Cartn_z"]] = merged.loc[:, ["Cartn_x_new", "Cartn_y_new", "Cartn_z_new"]].values
 

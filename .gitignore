@@ -170,6 +170,10 @@ models/other_tools/STINGAllo/*
 !models/other_tools/STINGAllo/STINGAllo.ipynb
 !models/other_tools/STINGAllo/stingallo_results.pkl
 
+models/other_tools/AlloFusion/*
+!models/other_tools/AlloFusion/AlloFusion.ipynb
+!models/other_tools/AlloFusion/allofusion_results.pkl
+
 models/other_tools_apos/data/
 
 models/other_tools_apos/ALLO/*
@@ -200,6 +204,10 @@ models/other_tools_apos/PASSer/rank/
 models/other_tools_apos/STINGAllo/*
 !models/other_tools_apos/STINGAllo/STINGAllo.ipynb
 !models/other_tools_apos/STINGAllo/stingallo_results.pkl
+
+models/other_tools_apos/AlloFusion/*
+!models/other_tools_apos/AlloFusion/AlloFusion.ipynb
+!models/other_tools_apos/AlloFusion/allofusion_results.pkl
 
 training_data/*
 !training_data/*.ipynb
