@@ -260,6 +260,12 @@ def get_cif(
         if ".pdb" in file:
             pdb = convert_pdb(file, path)
         elif ".cif" in file:
+            cifd = MMCIF2Dict().parse(file)
+            name = tuple(cifd.keys())[0].lower()
+            with open(f"{path}/{name}_converted.cif", "w+") as f:
+                writer = CifFileWriter(f.name, compress=False)
+                writer.write({name.upper(): tuple(cifd.values())[0]})
+                file = f.name
             pdb = complete_cif(file, path)
         else:
             raise Exception("Provide a valid .pdb or .cif (or .cif.gz) file")
@@ -720,16 +726,18 @@ def predict(
     # Pockets
     pockets = get_pockets(
         clean_pdb,
+        out=None
         path=path
     )
     pockets["pdb"] = clean_pdb.entry_id
 
-    # ColabFold MSA if necessary:
-    get_colabfold_msa(
-        clean_pdb,
-        email=email,
-        path=path
-    )
+    if email is not None and uniref_path is None:
+        # ColabFold MSA if necessary:
+        get_colabfold_msa(
+            clean_pdb,
+            email=email,
+            path=path
+        )
     
     # Features
     features = get_features(
@@ -779,7 +787,7 @@ def get_correlationplus_network(
         
     for i in range(len(nodes)):
         for j in range(i+1, len(nodes)): # Matrix is symmetrical, only use upper
-            G.add_edge(i, j, value=cc_matrix[i, j], distance=-np.log(abs(cc_matrix[i, j]) + 10E-10) + 10E-10)
+            G.add_edge(i, j, value=cc_matrix[i, j], distance=1 / (abs(cc_matrix[i, j]) + 1 )) #-np.log(abs(cc_matrix[i, j]) + 10E-10) + 10E-10)
             # The approach in lit. is to use -log10(|corr|) as edge weights/distances in the network for analyses
             # e.g., https://www.pnas.org/doi/full/10.1073/pnas.0810961106
     
@@ -806,7 +814,7 @@ def get_prs_network(
     for i in range(len(nodes)):
         for j in range(len(nodes)):
             if i != j:
-                G.add_edge(i, j, value=prs_mat[i, j], distance=-np.log(abs(prs_mat[i, j]) + 10E-10) + 10E-10) # PRS values are always positive but abs() doesn't hurt
+                G.add_edge(i, j, value=prs_mat[i, j], distance= 1 / (abs(prs_mat[i, j]) + 1 ))#-np.log(abs(prs_mat[i, j]) + 10E-10) + 10E-10) # PRS values are always positive but abs() doesn't hurt
                 # The approach in lit. is to use -log10(|corr|) as edge weights/distances in the network for analyses
                 # e.g., https://www.pnas.org/doi/full/10.1073/pnas.0810961106
     
