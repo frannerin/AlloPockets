@@ -3,7 +3,7 @@ channels:
   - conda-forge
   - https://conda.rosettacommons.org
 dependencies:
-  - python=3.11.9
+  - python=3.11 #.9 # .9 was previous req but new dssp updated it to 3.11.14
   - jupyterlab=4.2.5
   - ipywidgets
   - tqdm
@@ -13,9 +13,9 @@ dependencies:
   # Database and structures
   - peewee=3.17.6
   - apsw
-  - sqlite=3.46.0
+  - sqlite #=3.46.0
   - openpyxl
-  - pymol-open-source=2.5.0
+  - pymol-open-source #=2.5.0 # 2.5 was prev req. but dssp requires to install 3.1.0
   - pdbfixer=1.10
   - bioconda::mmseqs2=15.6* # 15.6f452
   - mdanalysis
@@ -34,9 +34,10 @@ dependencies:
   - biopython=1.84
   - msms=2.6.1
   - prody=2.4.1=pyh94de1ce_1
-  - pyrosetta # originally 2024.42+release.3366cf78a3*; changed for compatibility with conda-forge dssp
+  - pyrosetta=2025.24 # originally 2024.42+release.3366cf78a3*; changed for compatibility with conda-forge dssp
+  - dssp=4.5.7
   #- freesasa=2.2.1
-  - HCC::freesasa-cli=2.1.2
+  - freesasa-c=2.1.2 # HCC::freesasa-cli=2.1.2
   - bioconda::correlationplus=0.2.1
   # Gradio
   - gradio
