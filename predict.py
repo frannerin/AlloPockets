@@ -395,7 +395,7 @@ def get_pockets(
     if not os.path.isdir(f"{path}/{clean_pdb.entry_id}/{clean_pdb.entry_id}_out"):
         os.makedirs(f"{path}/{clean_pdb.entry_id}", exist_ok=True)
         os.system(f"cp {clean_pdb.filename} {path}/{clean_pdb.entry_id}/")
-        subprocess.run(f"fpocket -m 3 -M 6 -i 35 --file {path}/{clean_pdb.entry_id}/{clean_pdb.entry_id}.cif", shell=True, stdout=out, stderr=out)
+        subprocess.run(f"fpocket -m 3 -M 6 -i 35 --file {clean_pdb.entry_id}.cif", cwd=f"{path}/{clean_pdb.entry_id}", shell=True, stdout=out, stderr=out)
 
     return pd.DataFrame((
         {"pocket": (
@@ -829,6 +829,7 @@ def predict(
     # Pockets
     pockets = get_pockets(
         clean_pdb,
+        out=None,
         path=path
     )
     pockets["pdb"] = clean_pdb.entry_id

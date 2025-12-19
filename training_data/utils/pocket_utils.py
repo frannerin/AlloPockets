@@ -57,7 +57,8 @@ class Pocket(Cif):
         Extract pocket features stored in the FPocket output file of the whole PDB, by pocket number.
         """
         basepath, path = self.filename.rsplit("/", 3)[:2]
-        with open(f"{basepath}/{path}/{path.replace('_out', '_info.txt')}", "r") as f:
+        assert path.endswith("_out")
+        with open(f"{basepath}/{path}/{path[:-4] + '_info.txt'}", "r") as f:
             feats = next(
                 {
                     line.split(':')[0].strip(): (

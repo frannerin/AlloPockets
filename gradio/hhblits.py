@@ -23,6 +23,7 @@ class HHBlitsF:
             with open(fastaf, "w") as fasta:
                 fasta.write(f">fasta\n{seq}\n") 
 
+            # Steps inspired by https://github.com/sokrypton/ColabFold/blob/main/colabfold/mmseqs/search.py#L49
             subprocess.run(
                 (
                     f"{mmseqs} createdb {fastaf} {tmpdir}/qdb -v 1 && "
