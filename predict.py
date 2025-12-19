@@ -241,6 +241,7 @@ def complete_cif(file, path):
 def get_cif(
     pdb_id=None,
     file=None,
+    name=None,
     path=path
 ):
     assert not (pdb_id is None and file is None), "Provide one of pdb_id or file"
@@ -261,11 +262,12 @@ def get_cif(
             pdb = convert_pdb(file, path)
         elif ".cif" in file:
             cifd = MMCIF2Dict().parse(file)
-            name = tuple(cifd.keys())[0].lower()
+            name = name or tuple(cifd.keys())[0].lower()
             with open(f"{path}/{name}_converted.cif", "w+") as f:
                 writer = CifFileWriter(f.name, compress=False)
                 writer.write({name.upper(): tuple(cifd.values())[0]})
                 file = f.name
+                
             pdb = complete_cif(file, path)
         else:
             raise Exception("Provide a valid .pdb or .cif (or .cif.gz) file")
@@ -595,6 +597,108 @@ class HHBlitsF_msa(HHBlitsF):
 
         return df, None
 
+
+
+
+from Bio.Data.PDBData import residue_sasa_scales
+
+class DSSPF:
+    def __init__(self, cif):
+        self._cif = cif
+
+    def _get_chain_df(self, mmcif):
+        # From ChatGPT
+        summ = pd.DataFrame(mmcif["_dssp_struct_summary"])
+        hb = pd.DataFrame(mmcif["_dssp_struct_bridge_pairs"])
+    
+        for df in (summ, hb):
+            df["label_asym_id"] = df["label_asym_id"].astype(str)
+            df["label_seq_id"] = df["label_seq_id"].astype(str)
+    
+        base = summ[["label_asym_id", "label_seq_id"]].copy()
+        base["secondary structure"] = (
+            summ["secondary_structure"].astype(str).replace({".": "-", "?": "-", " ": "-"})
+        )
+
+        def _num(s: pd.Series, *, dtype: str, default):
+            s = s.replace({".": np.nan, "?": np.nan})
+            return pd.to_numeric(s, errors="coerce").fillna(default).astype(dtype)
+    
+        acc_abs = _num(summ["accessibility"], dtype="float64", default=np.nan)
+        comp = summ["label_comp_id"].astype(str)
+        max_acc = residue_sasa_scales["Sander"]
+        rel_asa = (acc_abs / comp.map(max_acc).astype("float64")).clip(upper=1.0)
+        base["relative ASA"] = rel_asa.where(comp.map(max_acc).notna(), np.nan).astype("float64")
+    
+        base["phi"] = _num(summ["phi"], dtype="float64", default=360)
+        base["psi"] = _num(summ["psi"], dtype="float64", default=360)
+    
+        hb["id"] = _num(hb["id"], dtype="int64", default=0)
+        id_map = dict(
+            zip(
+                zip(hb["label_asym_id"].to_numpy(), hb["label_seq_id"].to_numpy()),
+                hb["id"].to_numpy(),
+            )
+        )
+    
+        def _relidx(prefix: str) -> pd.Series:
+            a = hb[f"{prefix}_label_asym_id"].astype(str).to_numpy()
+            s = hb[f"{prefix}_label_seq_id"].astype(str).to_numpy()
+            partner = np.fromiter(
+                (id_map.get((aa, ss), 0) if aa not in {".", "?"} and ss not in {".", "?"} else 0 for aa, ss in zip(a, s)),
+                dtype=np.int64,
+                count=len(hb),
+            )
+            return (partner - hb["id"].to_numpy()).astype("int64")
+    
+        hb_keep = hb[["label_asym_id", "label_seq_id"]].copy()
+        hb_keep["NH_O_1_relidx"] = _relidx("acceptor_1")
+        hb_keep["NH_O_1_energy"] = _num(hb["acceptor_1_energy"], dtype="float64", default=0.0)
+        hb_keep["O_NH_1_relidx"] = _relidx("donor_1")
+        hb_keep["O_NH_1_energy"] = _num(hb["donor_1_energy"], dtype="float64", default=0.0)
+        hb_keep["NH_O_2_relidx"] = _relidx("acceptor_2")
+        hb_keep["NH_O_2_energy"] = _num(hb["acceptor_2_energy"], dtype="float64", default=0.0)
+        hb_keep["O_NH_2_relidx"] = _relidx("donor_2")
+        hb_keep["O_NH_2_energy"] = _num(hb["donor_2_energy"], dtype="float64", default=0.0)
+    
+        out = base.merge(hb_keep, on=["label_asym_id", "label_seq_id"], how="left", validate="one_to_one")
+    
+        out["label_asym_id"] = out["label_asym_id"].astype("object")
+        out["label_seq_id"] = out["label_seq_id"].astype("object")
+        out["secondary structure"] = out["secondary structure"].astype("object")
+    
+        for c in ("NH_O_1_relidx", "O_NH_1_relidx", "NH_O_2_relidx", "O_NH_2_relidx"):
+            out[c] = _num(out[c], dtype="int64", default=0)
+    
+        for c in ("relative ASA", "phi", "psi", "NH_O_1_energy", "O_NH_1_energy", "NH_O_2_energy", "O_NH_2_energy"):
+            out[c] = pd.to_numeric(out[c], errors="coerce").astype("float64")
+            
+        return out    
+
+    def dssp(self):
+        chains_dfs = []
+        for chain in self._cif.residues.label_asym_id.unique():
+            with (
+                tempfile.TemporaryDirectory() as tmpdir,
+                self._cif._extended_temp_ciff({
+                    "_atom_site": self._cif.atoms.query(f"label_asym_id == '{chain}'").to_dict(orient="list")
+                }) as f
+            ):
+                subprocess.run([f"mkdssp", "--calculate-accessibility", f.name, f"{tmpdir}/out.cif"], capture_output=True)
+                chains_dfs.append(
+                    self._get_chain_df(  Cif(self._cif._name, f"{tmpdir}/out.cif").cif.data )
+                )
+            
+        return pd.concat((
+            chains_dfs
+        ))
+        
+    features = [
+        "dssp"
+    ]
+
+
+
             
 def get_colabfold_msa(
     clean_pdb,
@@ -726,7 +830,6 @@ def predict(
     # Pockets
     pockets = get_pockets(
         clean_pdb,
-        out=None
         path=path
     )
     pockets["pdb"] = clean_pdb.entry_id
