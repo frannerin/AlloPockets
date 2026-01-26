@@ -1,0 +1,4 @@
+model	tp	fn	fp	mcc	macro-f1	confmat
+model5	1	4	4	0,18214285714285713	0,5910714285714286	"     0  1
+0  220  4
+1    4  1"
