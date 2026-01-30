@@ -158,7 +158,7 @@ def standardize(cif, path, name):
     # Assemble new mmCIF elements necessary for downstream tasks
     entity = []
     entity_poly = []
-    pdbx_poly_seq_scheme = []
+    # pdbx_poly_seq_scheme = []
     for entid, entatoms in atoms.groupby("label_entity_id"):
         if entid != ".":
             entity.append({"id": entid, "type": "polymer", "pdbx_description": "Protein"})
@@ -170,26 +170,26 @@ def standardize(cif, path, name):
                 "pdbx_strand_id": ",".join(entatoms.label_asym_id.unique())
             })
 
-            for asym_id, asym_atoms in entatoms.groupby("label_asym_id"):
-                pdbx_poly_seq_scheme.extend(
-                    asym_atoms
-                    .reset_index()
-                    .merge(protein_res)[
-                        ['index', "label_asym_id", "label_entity_id", "label_comp_id", "label_seq_id", "pdbx_PDB_ins_code", "auth_asym_id", "auth_seq_id"]
-                    ]
-                    .drop_duplicates()
-                    .set_index("index").sort_index().reset_index(drop=True)
-                    .rename(columns={
-                        "label_asym_id": "asym_id",
-                        "label_entity_id": "entity_id",
-                        "label_comp_id": "mon_id",
-                        "label_seq_id": "seq_id",
-                        "pdbx_PDB_ins_code": "pdb_ins_code",
-                        "auth_asym_id": "pdb_strand_id",
-                        "auth_seq_id": "pdb_seq_num"
-                    })
-                    .to_dict(orient="records")
-                )
+            # for asym_id, asym_atoms in entatoms.groupby("label_asym_id"):
+            #     pdbx_poly_seq_scheme.extend(
+            #         asym_atoms
+            #         .reset_index()
+            #         .merge(protein_res)[
+            #             ['index', "label_asym_id", "label_entity_id", "label_comp_id", "label_seq_id", "pdbx_PDB_ins_code", "auth_asym_id", "auth_seq_id"]
+            #         ]
+            #         .drop_duplicates()
+            #         .set_index("index").sort_index().reset_index(drop=True)
+            #         .rename(columns={
+            #             "label_asym_id": "asym_id",
+            #             "label_entity_id": "entity_id",
+            #             "label_comp_id": "mon_id",
+            #             "label_seq_id": "seq_id",
+            #             "pdbx_PDB_ins_code": "pdb_ins_code",
+            #             "auth_asym_id": "pdb_strand_id",
+            #             "auth_seq_id": "pdb_seq_num"
+            #         })
+            #         .to_dict(orient="records")
+            #     )
 
     # Complete entities with ligands
     for res, resatoms in atoms.query(f"label_entity_id not in {list(entities.values())}").groupby("label_comp_id", sort=False):
@@ -203,7 +203,7 @@ def standardize(cif, path, name):
             "_atom_site": atoms.to_dict(orient="list"),
             "_entity": pd.DataFrame(entity, dtype=str).to_dict(orient="list"),
             "_entity_poly": pd.DataFrame(entity_poly, dtype=str).to_dict(orient="list"),
-            "_pdbx_poly_seq_scheme": pd.DataFrame(pdbx_poly_seq_scheme, dtype=str).to_dict(orient="list"),
+            # "_pdbx_poly_seq_scheme": pd.DataFrame(pdbx_poly_seq_scheme, dtype=str).to_dict(orient="list"),
         }
     }
     return write_cif(d, name, path)
@@ -227,7 +227,7 @@ def complete_cif(file, name, path):
     cifd = MMCIF2Dict().parse(file)
     dname = tuple(cifd.keys())[0]
     
-    if any(loop not in cifd[dname] for loop in ["_atom_site", "_entity_poly", "_pdbx_poly_seq_scheme", "_entity"]):
+    if any(loop not in cifd[name] for loop in ["_atom_site", "_entity_poly", "_entity"]): # "_pdbx_poly_seq_scheme",
         return standardize(Cif(name, filename=file), path, name)
     else:
         return write_cif(cifd, name, path)
@@ -529,10 +529,10 @@ from utils.pocket_utils import Pocket, get_pockets_info, get_mean_pocket_feature
 # from utils.features_classes import * # Each FClass
 # from utils.features_utils import calculate_features, get_pdb_features
 
-# Path to the mkdssp executable downloaded from https://github.com/PDB-REDO/dssp/releases/tag/v4.4.0
-# BiopythonF.dssp_path = "training_data/utils/external/mkdssp-4.4.0-linux-x64" 
+# # Path to the mkdssp executable downloaded from https://github.com/PDB-REDO/dssp/releases/tag/v4.4.0
+# BiopythonF.dssp_path = str( cwd / "training_data/utils/external/mkdssp-4.4.0-linux-x64" )
 # os.chmod(BiopythonF.dssp_path, 0o755)
-# f"mkdssp --mmcif-dictionary {os.environ['CONDA_PREFIX']}/share/libcifpp/mmcif_pdbx.dic"#"training_data/utils/external/mkdssp-4.4.0-linux-x64"
+# # f"mkdssp --mmcif-dictionary {os.environ['CONDA_PREFIX']}/share/libcifpp/mmcif_pdbx.dic"#"training_data/utils/external/mkdssp-4.4.0-linux-x64"
 
 # from colabfold.batch import get_msa_and_templates
 # from colabfold.utils import DEFAULT_API_SERVER
@@ -606,7 +606,7 @@ class DSSPF:
         self._cif = cif
 
     def _get_chain_df(self, mmcif):
-        # From ChatGPT
+        # From ChatGPT based on Biopython
         summ = pd.DataFrame(mmcif["_dssp_struct_summary"])
         hb = pd.DataFrame(mmcif["_dssp_struct_bridge_pairs"])
     
@@ -697,6 +697,17 @@ class DSSPF:
     ]
 
 
+FClasses = [
+    GrapheinF,
+    FreeSASAF,
+    DSSPF,
+    MelodiaF,
+    BiopythonF,    
+    PyRosettaF,
+    ProDyF,
+    TransferEntropyF,
+    HHBlitsF,
+]
 
             
 def get_colabfold_msa(

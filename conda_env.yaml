@@ -4,6 +4,7 @@ channels:
   - https://conda.rosettacommons.org
 dependencies:
   - python=3.11 #.9 # .9 was previous req but new dssp updated it to 3.11.14
+  - compilers
   - jupyterlab=4.2.5
   - ipywidgets
   - tqdm
