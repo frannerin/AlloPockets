@@ -197,6 +197,7 @@ class DSSPF:
 
 
 import tempfile
+import numpy as np
 from Bio.Data.PDBData import residue_sasa_scales
 
 class DSSPF:
@@ -261,7 +262,7 @@ class DSSPF:
         out = base.merge(hb_keep, on=["label_asym_id", "label_seq_id"], how="left", validate="one_to_one")
     
         out["label_asym_id"] = out["label_asym_id"].astype("object")
-        out["label_seq_id"] = _num(out["label_seq_id"], dtype="int64", default=0)
+        out["label_seq_id"] = out["label_seq_id"].astype("object")
         out["secondary structure"] = out["secondary structure"].astype("object")
     
         for c in ("NH_O_1_relidx", "O_NH_1_relidx", "NH_O_2_relidx", "O_NH_2_relidx"):
@@ -283,7 +284,7 @@ class DSSPF:
             ):
                 subprocess.run([f"mkdssp", "--calculate-accessibility", f.name, f"{tmpdir}/out.cif"], capture_output=True)
                 chains_dfs.append(
-                    self._get_chain_df( Cif(self._cif._name, f"{tmpdir}/out.cif").cif.data )
+                    self._get_chain_df(  self._cif.__class__(self._cif._name, f"{tmpdir}/out.cif").cif.data )
                 )
             
         return pd.concat((
