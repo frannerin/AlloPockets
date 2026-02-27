@@ -205,7 +205,7 @@ class DSSPF:
         self._cif = cif
 
     def _get_chain_df(self, mmcif):
-        # From ChatGPT
+        # From ChatGPT based on Biopython
         summ = pd.DataFrame(mmcif["_dssp_struct_summary"])
         hb = pd.DataFrame(mmcif["_dssp_struct_bridge_pairs"])
     

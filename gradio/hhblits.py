@@ -101,14 +101,17 @@ class HHBlitsF:
 
 
 
-import sys, os
 
-_, pdb, path = sys.argv
-
-sys.path.append(__file__.rsplit("/", 2)[0] + "/training_data")
-from utils.features_utils import calculate_features
 
 if __name__ == '__main__':
+    import sys, os
+
+    _, pdb, path = sys.argv
+    
+    sys.path.append(__file__.rsplit("/", 2)[0] + "/training_data")
+    from utils.features_utils import calculate_features
+
+
     fc = HHBlitsF
     pdbpath = f"{path}/features/{pdb}"
     os.makedirs(pdbpath, exist_ok=True)

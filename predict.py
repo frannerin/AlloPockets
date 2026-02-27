@@ -227,8 +227,8 @@ def complete_cif(file, name, path):
     cifd = MMCIF2Dict().parse(file)
     dname = tuple(cifd.keys())[0]
     
-    if any(loop not in cifd[name] for loop in ["_atom_site", "_entity_poly", "_entity"]): # "_pdbx_poly_seq_scheme",
-        return standardize(Cif(name, filename=file), path, name)
+    if any(loop not in cifd[dname] for loop in ["_atom_site", "_entity_poly", "_entity"]): # "_pdbx_poly_seq_scheme",
+        return standardize(Cif(dname, filename=file), path, name)
     else:
         return write_cif(cifd, name, path)
 
@@ -697,17 +697,17 @@ class DSSPF:
     ]
 
 
-FClasses = [
-    GrapheinF,
-    FreeSASAF,
-    DSSPF,
-    MelodiaF,
-    BiopythonF,    
-    PyRosettaF,
-    ProDyF,
-    TransferEntropyF,
-    HHBlitsF,
-]
+# FClasses = [
+#     GrapheinF,
+#     FreeSASAF,
+#     DSSPF,
+#     MelodiaF,
+#     BiopythonF,    
+#     PyRosettaF,
+#     ProDyF,
+#     TransferEntropyF,
+#     HHBlitsF,
+# ]
 
             
 def get_colabfold_msa(
@@ -884,10 +884,24 @@ import networkx as nx
 import numpy as np
 from correlationplus.calculate import calcENMnDCC
 
+from scipy.spatial import cKDTree
+
+
+def _pairs_within_cutoff(ca_coords: np.ndarray, cutoff: float):
+    """
+    Return unique (i, j) pairs with i < j and distance <= cutoff.
+    """
+    tree = cKDTree(ca_coords)
+    pairs = tree.query_pairs(r=cutoff, output_type="set")  # set of (i, j), i<j
+    return pairs
+
+
+
 def get_correlationplus_network(
     atoms,
     nodes,
     pdb,
+    max_edge_dist=7,
     path=path
 ):
     # Calculate correlationplus network or read
@@ -902,18 +916,29 @@ def get_correlationplus_network(
     for i, node in nodes.iterrows():
         G.add_node(i, **node)
         
-    for i in range(len(nodes)):
-        for j in range(i+1, len(nodes)): # Matrix is symmetrical, only use upper
-            G.add_edge(i, j, value=cc_matrix[i, j], distance=1 / (abs(cc_matrix[i, j]) + 1 )) #-np.log(abs(cc_matrix[i, j]) + 10E-10) + 10E-10)
-            # The approach in lit. is to use -log10(|corr|) as edge weights/distances in the network for analyses
-            # e.g., https://www.pnas.org/doi/full/10.1073/pnas.0810961106
+    # for i in range(len(nodes)):
+    #     for j in range(i+1, len(nodes)): # Matrix is symmetrical, only use upper
+    #         G.add_edge(i, j, value=cc_matrix[i, j], distance=1 / (abs(cc_matrix[i, j]) + 1 )) #-np.log(abs(cc_matrix[i, j]) + 10E-10) + 10E-10)
+    #         # The approach in lit. is to use -log10(|corr|) as edge weights/distances in the network for analyses
+    #         # e.g., https://www.pnas.org/doi/full/10.1073/pnas.0810961106
+
+    # coords in the same order as your node indices (assumes nodes index matches atoms order)
+    for i, j in _pairs_within_cutoff(atoms.getCoords(), max_edge_dist):
+        w = cc_matrix[i, j]
+        G.add_edge(
+            i, j,
+            value=w,
+            distance=1 / (abs(w) + 1.0)
+        )
     
     return G
 
+    
 def get_prs_network(
     prodycif,
     pdb,
     nodes,
+    max_edge_dist=7,
     path=path
 ):
     # Calculate PRS or read
@@ -929,12 +954,18 @@ def get_prs_network(
     for i, node in nodes.iterrows():
         G.add_node(i, **node)
 
-    for i in range(len(nodes)):
-        for j in range(len(nodes)):
-            if i != j:
-                G.add_edge(i, j, value=prs_mat[i, j], distance= 1 / (abs(prs_mat[i, j]) + 1 ))#-np.log(abs(prs_mat[i, j]) + 10E-10) + 10E-10) # PRS values are always positive but abs() doesn't hurt
-                # The approach in lit. is to use -log10(|corr|) as edge weights/distances in the network for analyses
-                # e.g., https://www.pnas.org/doi/full/10.1073/pnas.0810961106
+    # for i in range(len(nodes)):
+    #     for j in range(len(nodes)):
+    #         if i != j:
+    #             G.add_edge(i, j, value=prs_mat[i, j], distance= 1 / (abs(prs_mat[i, j]) + 1 ))#-np.log(abs(prs_mat[i, j]) + 10E-10) + 10E-10) # PRS values are always positive but abs() doesn't hurt
+    #             # The approach in lit. is to use -log10(|corr|) as edge weights/distances in the network for analyses
+    #             # e.g., https://www.pnas.org/doi/full/10.1073/pnas.0810961106
+
+    for i, j in _pairs_within_cutoff(prodycif._cas.getCoords(), max_edge_dist):
+        wij = prs_mat[i, j]
+        wji = prs_mat[j, i]
+        G.add_edge(i, j, value=wij, distance=1 / (abs(wij) + 1.0))
+        G.add_edge(j, i, value=wji, distance=1 / (abs(wji) + 1.0))
     
     return G
 
@@ -1037,14 +1068,32 @@ def get_filtered_pathways(
     ).query("_merge == 'left_only'").drop(columns="_merge")
     selected_paths = tuple(k for k in paths_lengths if k in targets.index) # List of selected paths, sorted by ascending path length (paths_lengths is sorted)
 
+    # return pd.concat(
+    #     clean_pdb.atoms.merge(
+    #         nodes.loc[paths[p]].assign(label_atom_id="CA")
+    #     ).assign(
+    #         label_entity_id='98',
+    #         label_asym_id=f"P{p}_top{i}",
+    #         label_seq_id=lambda df: tuple(str(i) for i in range(1, len(df)+1)),
+    #         occupancy = paths_lengths[p]
+    #     )
+    #     for i, p in enumerate(selected_paths[:top_pathways], 1)
+    # )
     return pd.concat(
-        clean_pdb.atoms.merge(
-            nodes.loc[paths[p]].assign(label_atom_id="CA")
-        ).assign(
-            label_entity_id='98',
-            label_asym_id=f"P{p}_top{i}",
-            label_seq_id=lambda df: tuple(str(i) for i in range(1, len(df)+1)),
-            occupancy = paths_lengths[p]
+        (
+            clean_pdb.atoms
+            .merge(
+                nodes.loc[paths[p]]
+                .assign(label_atom_id="CA", __path_order=range(len(paths[p])))
+            )
+            .sort_values("__path_order")
+            .drop(columns="__path_order")
+            .assign(
+                label_entity_id="98",
+                label_asym_id=f"P{p}_top{i}",
+                label_seq_id=lambda df: tuple(map(str, range(1, len(df) + 1))),
+                occupancy=paths_lengths[p],
+            )
         )
         for i, p in enumerate(selected_paths[:top_pathways], 1)
     )
