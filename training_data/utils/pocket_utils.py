@@ -1,10 +1,13 @@
 import os, sys
-# Include the path where the "src" of allodb is; w.r.t. the location of this file, it is 2 folders behind
-# '__file__' is used as "../../" doesn't work because it uses the location of the script/notebook that imports this module, and not the location of this module
-sys.path.append(
-    os.path.dirname( os.path.abspath(__file__) )
-    .rsplit("/", 2)[0]
-)
+# # Include the path where the "src" of allodb is; w.r.t. the location of this file, it is 2 folders behind
+# # '__file__' is used as "../../" doesn't work because it uses the location of the script/notebook that imports this module, and not the location of this module
+# sys.path.append(
+#     os.path.dirname( os.path.abspath(__file__) )
+#     .rsplit("/", 2)[0]
+# )
+
+from pathlib import Path
+sys.path.append(str( Path(__file__).resolve().parents[2] / "database" ))
 
 from src.viz import Viz
 

@@ -140,6 +140,7 @@ models/pockets_physchem/
 models/pockets_embs/
 
 models/other_tools/data/
+models/other_tools/structures/
 
 models/other_tools/ALLO/*
 !models/other_tools/ALLO/ALLO.ipynb
@@ -175,6 +176,7 @@ models/other_tools/AlloFusion/*
 !models/other_tools/AlloFusion/allofusion_results.pkl
 
 models/other_tools_apos/data/
+models/other_tools_apos/structures/
 
 models/other_tools_apos/ALLO/*
 !models/other_tools_apos/ALLO/ALLO.ipynb

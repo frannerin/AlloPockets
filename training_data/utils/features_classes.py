@@ -23,7 +23,6 @@ from Bio.SeqUtils import seq1 # for melodia propensity
 class BiopythonF:
     dssp_path = "mkdssp-4.4.0-linux-x64"
 
-
     
     def __init__(self, cif):
         self._cif = cif
