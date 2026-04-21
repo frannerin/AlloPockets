@@ -79,6 +79,17 @@ def standardize(cif, path, name):
         atoms["auth_seq_id"] = atoms["label_seq_id"] # label_seq_id will be standardized later: auth_seq_id preserves originals
     if "auth_atom_id" not in atoms:        
         atoms["auth_atom_id"] = atoms["label_atom_id"]
+    if "label_entity_id" not in atoms:
+        atoms["label_entity_id"] = "?"
+    if "pdbx_PDB_model_num" not in atoms:
+        atoms["pdbx_PDB_model_num"] = "1" # fpocket and prody need this column
+    if "B_iso_or_equiv" not in atoms:
+        atoms["B_iso_or_equiv"] = "0.00" # prody needs this column
+    if "label_alt_id" not in atoms:
+        atoms["label_alt_id"] = "." # prody needs this column
+        
+    # ProDy only accepts "A" and "." in label_alt_id
+    atoms["label_alt_id"] = atoms["label_alt_id"].replace("?", ".")
 
     # A .cif saved from a PDB is going to put the info as label_* and the chain in auth_asym_id.
     # if there is segid (~last column, ironically coming from label_asym_id,) it is put as auth_asym_id, and the main chain as label_asym_id
@@ -131,7 +142,7 @@ def standardize(cif, path, name):
     }
 
     
-    # Assign entity IDs and remap label_seq_id
+    # Assign entity IDs and remap label_seq_id; label_seq_id must be the 1-based index of the extracted sequences
     entity_id, entities = 1, {}
     for chainid, seqd in seqs.items():
         # Establish entity IDs
@@ -230,7 +241,18 @@ def complete_cif(file, path):
     cifd = MMCIF2Dict().parse(file)
     name = tuple(cifd.keys())[0]
     
-    if any(loop not in cifd[name] for loop in ["_atom_site", "_entity_poly", "_entity"]): # "_pdbx_poly_seq_scheme",
+    if (
+        any(
+            loop not in cifd[dname] 
+            for loop in ["_atom_site", "_entity_poly", "_entity"] # "_pdbx_poly_seq_scheme",
+        )
+        or any(
+            c not in atoms.columns 
+            for c in ("label_entity_id", "pdbx_PDB_model_num", "B_iso_or_equiv", "label_alt_loc")
+        )
+    ) or (
+        "?" in atoms["label_alt_loc"].unique()
+    ):
         return standardize(Cif(name, filename=file), path, name)
     else:
         return write_cif(cifd, name, path)

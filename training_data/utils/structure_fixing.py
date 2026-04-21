@@ -21,7 +21,7 @@ def get_fixed_atoms(f, pdb, orig_atoms, no_alt=True, no_hetatm=True, standard_re
     fixer.missingResidues = {}
     fixer.missingTerminals = {}
     # Add missing atoms
-    fixer.addMissingAtoms()
+    fixer.addMissingAtoms(seed=0)
 
     # Create a new cif-like dataframe with the new fixed atoms and their positions
     newdf = pd.DataFrame([
@@ -125,7 +125,7 @@ def get_fixed_atoms(f, pdb, orig_atoms, no_alt=True, no_hetatm=True, standard_re
 
     # If flag, delete alternative atom positions and only keep the principal/first(A)
     if no_alt:
-        final = final.query("label_alt_id in ['.', 'A']")
+        final = final.query("label_alt_id in ['.', 'A', '?']")
 
     return final
 
