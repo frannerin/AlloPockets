@@ -27,8 +27,7 @@ path = "predict" # Path to write files and results to
 
 
 import pymol2
-from Bio.SeqUtils import seq1, seq3, IUPACData
-from MDAnalysis.lib.util import inverse_aa_codes
+from MDAnalysis.lib.util import inverse_aa_codes, amino_acid_codes, canonical_inverse_aa_codes # all in uppercase
 from Bio import SeqIO
 
 
@@ -46,33 +45,24 @@ def write_cif(d, name, path):
 def standardize(cif, path, name):
     atoms = cif.atoms
 
-    # Standardize 3-letter residue names for successful sequence extraction
-    d = {
-        **inverse_aa_codes,
-        **IUPACData.protein_letters_3to1_extended
-    }
-    
-    atoms["label_comp_id"] = [
-        seq3(seq1(
-            comp, 
-            custom_map = d
-        )).upper()
-            if any(i in d for i in (comp.lower(), comp.upper(), comp.capitalize()))
-            else comp
-        for comp in atoms["label_comp_id"] 
-    ]
-    if "auth_comp_id" in atoms:
-        atoms["auth_comp_id"] = [
-            seq3(seq1(
-                comp, 
-                custom_map = d
-            )).upper()
-                if any(i in d for i in (comp.lower(), comp.upper(), comp.capitalize()))
-                else comp
-            for comp in atoms["auth_comp_id"] 
-        ]
-    else:
+    # Standardize residue names through auth_comp_id.
+    if "auth_comp_id" not in atoms and "label_comp_id" not in atoms:
+        raise Exception("File missing label_comp_id and auth_comp_id columns")
+    if "auth_comp_id" not in atoms:
         atoms["auth_comp_id"] = atoms["label_comp_id"]
+
+    atoms["auth_comp_id"] = pd.Series(
+        (
+            amino_acid_codes.get( # get 1-to-3 of the 1-letter code or original comp
+                inverse_aa_codes.get(comp, comp), # get 3-to-1 1-letter code or original comp
+                comp
+            )
+            for comp in atoms["auth_comp_id"].astype(str).str.strip().str.upper()
+        ), 
+        index=atoms.index,
+    )
+    atoms["label_comp_id"] = atoms["auth_comp_id"]
+        
 
     # Add mising columns, if any
     if "auth_seq_id" not in atoms:
@@ -91,15 +81,13 @@ def standardize(cif, path, name):
     # ProDy only accepts "A" and "." in label_alt_id
     atoms["label_alt_id"] = atoms["label_alt_id"].replace("?", ".")
 
-    # A .cif saved from a PDB is going to put the info as label_* and the chain in auth_asym_id.
-    # if there is segid (~last column, ironically coming from label_asym_id,) it is put as auth_asym_id, and the main chain as label_asym_id
-    if (
-        "label_asym_id" not in atoms
-    ) or (
-        "label_asym_id" in atoms and all(atoms["label_asym_id"] == '.')
-    ):
-        atoms["label_asym_id"] = atoms["auth_asym_id"]
-    if "auth_asym_id" not in atoms:        
+    ## A .cif saved from a PDB is going to put the info as label_* and the chain in auth_asym_id.
+    ## if there is segid (~last column, ironically coming from label_asym_id,) it is put as auth_asym_id, and the main chain as label_asym_id
+    # Keep label_asym_id unresolved until polymer residues are detected with PyMOL.
+    # If missing, initialize to "." and assign chain IDs only for polymer residues later.
+    if "label_asym_id" not in atoms:
+        atoms["label_asym_id"] = "."
+    if "auth_asym_id" not in atoms: # unlikely       
         atoms["auth_asym_id"] = atoms["label_asym_id"]
         
 
@@ -120,7 +108,7 @@ def standardize(cif, path, name):
     protein_res = pd.DataFrame(
         set(tuple(
             (
-                a.segi, a.chain, a.resn,
+                a.segi or ".", a.chain, a.resn,
                 a.resi_number, a.ins_code or '?' # pdbx_PDB_ins_code or "?" if none
             ) 
             for a in protein_atoms.atom
@@ -130,14 +118,45 @@ def standardize(cif, path, name):
             "auth_seq_id", "pdbx_PDB_ins_code"
         ],
         dtype=str
-    ).sort_values(
-        ["label_asym_id", "auth_seq_id", "pdbx_PDB_ins_code"], 
+    )
+    
+
+    key_cols = ["auth_asym_id", "auth_seq_id", "pdbx_PDB_ins_code"]
+    if atoms["label_asym_id"].eq(".").all():
+        protein_res["label_asym_id"] = protein_res["auth_asym_id"]
+        atoms["label_asym_id"] = "."
+        prot_map = protein_res[key_cols + ["label_asym_id"]].drop_duplicates()
+        atoms = atoms.merge(prot_map, on=key_cols, how="left", suffixes=("", "_prot"))
+        atoms["label_asym_id"] = atoms["label_asym_id_prot"].fillna(".")
+        atoms = atoms.drop(columns=[c for c in atoms.columns if c.endswith("_prot")])
+    else:
+        protein_sets = protein_res[["label_asym_id"] + key_cols].drop_duplicates().assign(_in_protein=True)
+        extra = atoms[["label_asym_id"] + key_cols].drop_duplicates().merge(
+            protein_sets, on=["label_asym_id"] + key_cols, how="left"
+        )
+        extra = extra[extra["_in_protein"].isna()].drop(columns=["_in_protein"])
+        if len(extra):
+            atoms = atoms.merge(extra.assign(_extra=True), on=["label_asym_id"] + key_cols, how="left")
+            atoms.loc[atoms["_extra"].fillna(False), "label_asym_id"] = "."
+            atoms = atoms.drop(columns=["_extra"])
+
+    protein_res = protein_res.sort_values(
+        ["auth_asym_id", "label_asym_id", "auth_seq_id", "pdbx_PDB_ins_code"], 
         key=lambda x: x.astype(int) if x.name == "auth_seq_id" else x
     )
+    
+    # Extract sequences; reject non-standard polymer residue names at this stage.
+    bad_polymer = tuple(
+        comp for comp in protein_res["auth_comp_id"].unique() # .astype(str).str.upper() # it was already upperized before
+        if comp not in canonical_inverse_aa_codes # canonical 3-to-1 mapping
+    )
+    if bad_polymer:
+        raise Exception(
+            f"{' '.join(bad_polymer)} Non-standard 3-letter residue codes present in the structure could not be mapped to the 20 standard codes."
+        )
 
-    # Extract sequences
     seqs = {
-        cid: {"seq": "".join(map(lambda res: seq1(res, custom_map=d), cres["auth_comp_id"]))}
+        cid: {"seq": "".join(map(canonical_inverse_aa_codes.get, cres["auth_comp_id"]))}
         for cid, cres in protein_res.groupby("label_asym_id", sort=False)
     }
 
@@ -239,21 +258,24 @@ def convert_pdb(file, path):
 
 def complete_cif(file, path):
     cifd = MMCIF2Dict().parse(file)
-    name = tuple(cifd.keys())[0]
+    dname = tuple(cifd.keys())[0]
     
     if (
         any(
             loop not in cifd[dname] 
-            for loop in ["_atom_site", "_entity_poly", "_entity"] # "_pdbx_poly_seq_scheme",
+            for loop in ["_atom_site", "_entity_poly"] # , "_entity", "_pdbx_poly_seq_scheme",
+            # REMOVED _ENTITY AS REQUIREMENT because it's not used; it may be that it is needed for nice MVS vizs?
         )
         or any(
-            c not in atoms.columns 
-            for c in ("label_entity_id", "pdbx_PDB_model_num", "B_iso_or_equiv", "label_alt_loc")
+            c not in pd.DataFrame(cifd[dname]["_atom_site"], dtype=str).columns 
+            for c in ("label_entity_id",)
         )
-    ) or (
-        "?" in atoms["label_alt_loc"].unique()
+        or any(
+            c not in pd.DataFrame(cifd[dname]["_entity_poly"], dtype=str).columns
+            for c in ("pdbx_seq_one_letter_code_can",)
+        )
     ):
-        return standardize(Cif(name, filename=file), path, name)
+        return standardize(Cif(dname, filename=file), path, name)
     else:
         return write_cif(cifd, name, path)
 
@@ -419,7 +441,7 @@ def get_pockets(
     if not os.path.isdir(f"{path}/{clean_pdb.entry_id}/{clean_pdb.entry_id}_out"):
         os.makedirs(f"{path}/{clean_pdb.entry_id}", exist_ok=True)
         os.system(f"cp {clean_pdb.filename} {path}/{clean_pdb.entry_id}/")
-        os.system(f"fpocket -m 3 -M 6 -i 35 --file {path}/{clean_pdb.entry_id}/{clean_pdb.entry_id}.cif")
+        subprocess.run(f"fpocket -m 3 -M 6 -i 35 --file {clean_pdb.entry_id}.cif", cwd=f"{path}/{clean_pdb.entry_id}", shell=True)
 
     return pd.DataFrame((
         {"pocket": (
